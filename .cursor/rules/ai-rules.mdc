@@ -1,0 +1,20 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+## Synonyms
+
+I may use different terms for the same thing. Consider the following sets of synonyms when planning your response:
+
+**Technical Design Document:** [TDD, Technical Design, tech design, green path doc, development guide, guide]
+
+## Clarify Assumption
+
+Whenever there is any ambiguity or multiple possible interpretations of a user's query, the AI must explicitly state any assumptions it is making about the user's intent, the scope of the request, or the sources being used. The AI should also invite the user to clarify or correct these assumptions before proceeding with actions that depend on them.
+
+- If a query could reasonably refer to more than one source, file, or context, the AI must state which it is assuming and why.
+- The AI should phrase this as: "I am assuming you mean X because Y. If you meant something else (such as Z), please let me know."
+- If the user's intent is still unclear after stating the assumption, the AI should ask a clarifying question before proceeding.
+- This rule applies to all queries, especially those involving terms like "notes," "docs," "files," or any other potentially ambiguous reference.

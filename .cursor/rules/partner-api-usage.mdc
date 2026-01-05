@@ -1,0 +1,333 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Partner API Usage Analysis Prompt Template
+
+## Instructions
+Use this prompt to analyze any partner's API usage patterns across Shopify's platform. Replace the variables in `[BRACKETS]` with specific values for your analysis.
+
+---
+
+## Analysis Prompt
+
+Does **[PARTNER_NAME]** (app ID **[API_CLIENT_ID]**) use the **[API_CATEGORY]** APIs? 
+
+Please check the following sources systematically:
+
+1. **Migration/adoption documentation** in the vault and Google workspace
+2. **Data warehouse** to examine their actual API calls  
+3. **Your professional judgment** based on the findings
+
+For the data warehouse analysis, please focus on:
+- API fields related to **[API_CATEGORY]** (e.g., `[EXAMPLE_API_FIELD_1]`, `[EXAMPLE_API_FIELD_2]`, `[EXAMPLE_API_FIELD_3]`)
+- Usage patterns and volume over time
+- Performance metrics
+- Monthly trends and growth
+- **Webhook subscriptions and delivery patterns** (if applicable)
+
+Please provide:
+- **Documentation links** from internal sources
+- **Detailed API usage breakdown** including:
+  - Total requests and unique fields used
+  - Top API fields with usage statistics
+  - Monthly growth trends
+  - Performance metrics (resolver times)
+  - Complete field usage categorization
+- **Webhook analysis** (if relevant to the API category):
+  - Active webhook subscriptions by topic
+  - Webhook delivery volume and success rates
+  - Monthly webhook trends
+  - Webhook performance metrics
+- **Technical implementation details** showing how they use the APIs
+- **Final judgment** on their API adoption
+
+Format the response in **markdown suitable for creating a Google Doc**. The user can then copy the markdown content and create a Google Doc by pasting it into a new document at [docs.google.com](https://docs.google.com).
+
+---
+
+## Example Usage
+
+### Returns & Exchange APIs
+```
+Does [Partner Name] (app ID [12345678]) use the returns and exchange APIs?
+
+[API_CATEGORY] = "returns and exchange"
+[EXAMPLE_API_FIELD_1] = "returnCreate" 
+[EXAMPLE_API_FIELD_2] = "returnProcess"
+[EXAMPLE_API_FIELD_3] = "reverseDeliveryCreateWithShipping"
+```
+
+### Checkout APIs  
+```
+Does [Partner Name] (app ID [12345678]) use the checkout APIs?
+
+[API_CATEGORY] = "checkout"
+[EXAMPLE_API_FIELD_1] = "checkoutCreate"
+[EXAMPLE_API_FIELD_2] = "checkoutCompleteWithTokenizedPayment" 
+[EXAMPLE_API_FIELD_3] = "checkoutShippingAddressUpdate"
+```
+
+### Product APIs
+```
+Does [Partner Name] (app ID [12345678]) use the product management APIs?
+
+[API_CATEGORY] = "product management"
+[EXAMPLE_API_FIELD_1] = "productCreate"
+[EXAMPLE_API_FIELD_2] = "productUpdate"
+[EXAMPLE_API_FIELD_3] = "productVariantCreate"
+```
+
+### Inventory APIs
+```
+Does [Partner Name] (app ID [12345678]) use the inventory APIs?
+
+[API_CATEGORY] = "inventory"
+[EXAMPLE_API_FIELD_1] = "inventoryLevelAdjust"
+[EXAMPLE_API_FIELD_2] = "inventoryItemUpdate"
+[EXAMPLE_API_FIELD_3] = "inventoryLevelConnect"
+```
+
+### Order Management APIs
+```
+Does [Partner Name] (app ID [12345678]) use the order management APIs?
+
+[API_CATEGORY] = "order management"  
+[EXAMPLE_API_FIELD_1] = "orderUpdate"
+[EXAMPLE_API_FIELD_2] = "orderCapture"
+[EXAMPLE_API_FIELD_3] = "fulfillmentCreate"
+```
+
+### Customer APIs
+```
+Does [Partner Name] (app ID [12345678]) use the customer APIs?
+
+[API_CATEGORY] = "customer"
+[EXAMPLE_API_FIELD_1] = "customerCreate"
+[EXAMPLE_API_FIELD_2] = "customerUpdate" 
+[EXAMPLE_API_FIELD_3] = "customerAddressCreate"
+```
+
+### Discount APIs
+```
+Does [Partner Name] (app ID [12345678]) use the discount APIs?
+
+[API_CATEGORY] = "discount"
+[EXAMPLE_API_FIELD_1] = "discountCodeBasicCreate"
+[EXAMPLE_API_FIELD_2] = "priceRuleCreate"
+[EXAMPLE_API_FIELD_3] = "automaticDiscountCreate"
+```
+
+### Subscription APIs
+```
+Does [Partner Name] (app ID [12345678]) use the subscription APIs?
+
+[API_CATEGORY] = "subscription"
+[EXAMPLE_API_FIELD_1] = "subscriptionContractCreate" 
+[EXAMPLE_API_FIELD_2] = "subscriptionBillingAttemptCreate"
+[EXAMPLE_API_FIELD_3] = "sellingPlanGroupCreate"
+```
+
+### Webhook APIs
+```
+Does [Partner Name] (app ID [12345678]) use webhook APIs extensively?
+
+[API_CATEGORY] = "webhook"
+[EXAMPLE_API_FIELD_1] = "webhookSubscriptionCreate"
+[EXAMPLE_API_FIELD_2] = "webhookSubscriptionUpdate"
+[EXAMPLE_API_FIELD_3] = "eventBridgeWebhookSubscriptionCreate"
+```
+
+### Flow/Automation APIs
+```
+Does [Partner Name] (app ID [12345678) use the Flow/automation APIs?
+
+[API_CATEGORY] = "Flow/automation"
+[EXAMPLE_API_FIELD_1] = "flowTriggerReceive"
+[EXAMPLE_API_FIELD_2] = "flowActionDefinition" 
+[EXAMPLE_API_FIELD_3] = "automationRun"
+```
+
+### Fraud Detection APIs
+```
+Does [Partner Name] (app ID [12345678]) use the fraud detection APIs?
+
+[API_CATEGORY] = "fraud detection"
+[EXAMPLE_API_FIELD_1] = "orderRiskAssessmentCreate"
+[EXAMPLE_API_FIELD_2] = "riskLevel"
+[EXAMPLE_API_FIELD_3] = "assessments"
+```
+
+---
+
+## Variables Reference
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `[PARTNER_NAME]` | Display name of the partner/app | "ReBound Returns" |
+| `[API_CLIENT_ID]` | Numeric app ID | 130980216833 |
+| `[API_CATEGORY]` | Category of APIs to analyze | "returns and exchange" |
+| `[EXAMPLE_API_FIELD_1]` | Primary API field/mutation for this category | "returnCreate" |
+| `[EXAMPLE_API_FIELD_2]` | Secondary API field/mutation | "returnProcess" |
+| `[EXAMPLE_API_FIELD_3]` | Tertiary API field/mutation | "reverseDeliveryCreateWithShipping" |
+
+---
+
+## Expected Output Format
+
+The analysis should be formatted in **Google Doc-compatible markdown** with:
+
+1. **Executive Summary** (YES/NO with confidence level)
+2. **Evidence from Multiple Sources**
+   - Internal documentation links
+   - Partnership documentation 
+   - Data warehouse findings
+3. **Detailed API Usage Breakdown**
+   - Overall statistics
+   - Top API fields table
+   - Monthly growth trends
+   - Performance metrics
+4. **Webhook Analysis** (if applicable)
+   - Webhook subscriptions breakdown
+   - Delivery volume and success rates
+   - Webhook performance metrics
+5. **Technical Implementation Details**
+6. **Professional Judgment/Conclusion**
+7. **App Profile Summary** (basic app information and metadata)
+
+### Google Doc Creation Instructions for User:
+1. Copy the markdown analysis response
+2. Go to [docs.google.com](https://docs.google.com) and create a new document
+3. Paste the markdown content into the document
+4. Google Docs will automatically format headers, tables, and basic styling
+5. Review and adjust formatting as needed for presentation
+
+### Google Doc Formatting Guidelines:
+- Use standard markdown headers (##, ###) for proper document structure
+- Include tables using markdown table syntax for statistics and breakdowns
+- Use **bold** for emphasis and key metrics
+- Use bullet points (-) for lists and sub-items
+- Include horizontal rules (---) to separate major sections
+- Format code/API names with backticks (`api_field_name`)
+- Use > blockquotes for important callouts if needed
+
+---
+
+## Notes
+
+- This prompt leverages multiple Shopify internal data sources
+- Requires access to vault, Google workspace, and data warehouse
+- Analysis covers both historical documentation and real-time usage data
+- Output is optimized for business stakeholder consumption via Google Docs
+- Can be adapted for any API category or partner analysis
+- Markdown format ensures proper rendering in Google Docs with tables, headers, and formatting
+
+---
+
+## Webhook Analysis Queries
+
+When analyzing webhook usage, use these specific data warehouse queries to gather comprehensive webhook data:
+
+### 1. Webhook Subscriptions Analysis
+```sql
+-- Query for active webhook subscriptions by topic
+SELECT 
+  topic,
+  webhook_delivery_method,
+  COUNT(DISTINCT webhook_subscription_id) as subscription_count,
+  COUNT(DISTINCT shop_id) as shops_with_subscriptions,
+  MIN(valid_from) as first_subscription,
+  MAX(valid_from) as latest_subscription
+FROM `shopify-dw.apps_and_developers.webhook_subscription_history_v1`
+WHERE api_client_id = [API_CLIENT_ID]
+  AND is_subscribed = TRUE
+GROUP BY topic, webhook_delivery_method
+ORDER BY subscription_count DESC
+```
+
+### 2. Webhook Delivery Volume and Performance
+```sql
+-- Query for webhook delivery statistics
+SELECT 
+  webhook_topic,
+  DATE_TRUNC(delivery_date, MONTH) as month,
+  SUM(total_delivery_attempts) as total_deliveries,
+  SUM(total_successful_deliveries) as successful_deliveries,
+  ROUND(AVG(avg_response_time_ms), 2) as avg_response_time_ms,
+  COUNT(DISTINCT shop_id) as unique_shops,
+  SUM(total_debounced_requests) as total_debounced
+FROM `shopify-dw.apps_and_developers.webhook_delivery_requests_daily`
+WHERE api_client_id = [API_CLIENT_ID]
+  AND delivery_date >= '2024-01-01'
+GROUP BY webhook_topic, month
+ORDER BY month DESC, total_deliveries DESC
+```
+
+### 3. Webhook Topic Summary (All Time)
+```sql
+-- Summary of webhook usage by topic
+WITH webhook_summary AS (
+  SELECT 
+    webhook_topic,
+    SUM(total_delivery_attempts) as total_deliveries,
+    SUM(total_successful_deliveries) as successful_deliveries,
+    ROUND(100.0 * SUM(total_successful_deliveries) / SUM(total_delivery_attempts), 2) as success_rate,
+    COUNT(DISTINCT shop_id) as unique_shops
+  FROM `shopify-dw.apps_and_developers.webhook_delivery_requests_daily`
+  WHERE api_client_id = [API_CLIENT_ID]
+    AND delivery_date >= '2024-01-01'
+  GROUP BY webhook_topic
+)
+SELECT *,
+  ROUND(100.0 * total_deliveries / SUM(total_deliveries) OVER(), 2) as percentage_of_traffic
+FROM webhook_summary
+ORDER BY total_deliveries DESC
+```
+
+### Webhook Analysis Output Format
+
+Include this section in your analysis when webhook usage is significant:
+
+#### **Webhook Subscriptions Breakdown**
+- Total webhook topics: X topics
+- Total active subscriptions: X,XXX subscriptions  
+- Shops with webhooks: X,XXX merchants
+- Delivery method: HTTPS/EventBridge
+
+| **Webhook Topic** | **Subscriptions** | **Shops** | **First Registered** |
+|-------------------|------------------|-----------|---------------------|
+| topic_name | XXX | XXX | Date |
+
+#### **Webhook Delivery Volume**  
+- **Total deliveries**: XXX million webhooks
+- **Success rate**: XX.X% overall  
+- **Peak monthly volume**: XX.X million
+- **Recent average**: XX.X million per month
+
+#### **Top Webhook Topics by Volume**
+
+| **Webhook Topic** | **Total Deliveries** | **% of Traffic** | **Success Rate** |
+|-------------------|---------------------|------------------|------------------|
+| topic_name | XX.XM | XX.X% | XX.X% |
+
+#### **Key Webhook Insights**
+- Pattern analysis indicating the app's primary use case
+- Real-time processing capabilities demonstrated by volume
+- Coverage of business processes (order lifecycle, etc.)
+- Performance and reliability metrics
+
+### When to Include Webhook Analysis
+
+Include webhook analysis in your report when:
+- The app has **active webhook subscriptions** (check first with subscription query)
+- **Monthly webhook volume > 10,000** deliveries (indicates meaningful usage)
+- The API category being analyzed typically relies on **real-time data** (e.g., fraud detection, inventory management, order processing)
+- Webhook topics directly relate to the **API category** being investigated
+
+**Common webhook patterns by app type:**
+- **Fraud Detection**: orders/create, orders/fulfilled, orders/cancelled, disputes/create, refunds/create
+- **Inventory Management**: orders/create, orders/fulfilled, fulfillments/update
+- **Marketing/Email**: customers/create, orders/create, orders/fulfilled  
+- **Returns/Exchange**: orders/fulfilled, refunds/create, returns/create
+- **Shipping/Logistics**: fulfillments/create, fulfillments/update, orders/fulfilled

@@ -1,0 +1,81 @@
+---
+description: When the user requests you to test webhooks
+alwaysApply: false
+---
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Making Direct GraphQL Requests to Shopify Admin API
+
+This guide explains how to make GraphQL requests directly to Shopify's Admin API using credentials stored in a local app's database.
+
+> **Important Note**: The AI assistant has access to Shopify Dev tools for documentation lookup. If you need information about API endpoints, schemas, or query structures, you can ask the assistant to:
+> - Use the Shopify Dev MCP to search the GraphQL schema
+> - Use the Shopify Dev MCP to find relevant documentation
+> - Look up specific fields, mutations, or query structures
+>
+> These tools are valuable resources when constructing API requests and can help verify the correct structure before sending requests.
+
+## Finding Your Local App credentials and Database
+
+Use /sandbox-app as your playground app
+
+1. Navigate to its prisma directory:
+   ```bash
+   cd ./apps/LOCAL_APP_NAME/prisma
+   ```
+
+2. Check for the SQLite database file:
+   ```bash
+   ls -la *.sqlite*
+   ```
+   Common database names include `dev.sqlite`, `development.sqlite`, or `data.sqlite`.
+
+## Finding Database Credentials
+
+The app uses SQLite for storing session data, including the Shopify access token:
+
+1. Query the Session table to get the access token and shop URL:
+   ```bash
+   sqlite3 ./apps/LOCAL_APP_NAME/prisma/dev.sqlite "SELECT id, shop, accessToken FROM Session;"
+   ```
+
+2. This will return output in this format:
+   ```
+   offline_[shop-name].myshopify.com|[shop-name].myshopify.com|shpua_xxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+
+   The shop URL is the second field, and the access token is the third field.
+
+## Making GraphQL Requests with curl
+
+Once you have the shop URL and access token, you can make direct GraphQL requests using curl:
+
+```bash
+curl -s -X POST "https://[shop-name].myshopify.com/admin/api/2025-10/graphql.json" \
+  -H "X-Shopify-Access-Token: shpua_xxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"query { ... your query here ... }"}'
+```
+
+For better readability, pipe the output to `jq`:
+
+```bash
+curl -s -X POST "https://[shop-name].myshopify.com/admin/api/2025-10/graphql.json" \
+  -H "X-Shopify-Access-Token: shpua_xxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"query { ... your query here ... }"}' | jq
+```
+
+> **Note**: Always use the latest API version (currently 2025-10) to ensure access to the most recent features and improvements.
+
+## Process
+### Create a webhook subscription 
+- use the Shopify MCP to call the correct API. 
+- Use "https://a790ce3669a0583aa385dee56f6efb0e.m.pipedream.net" as your endpoint.
+
+### Trigger the webhook
+e.g. 1: If the webhooks is products/updates, update a product via the Shopify API to trigger the webhook
+e.g. 2: If the webhook is orders/create, create an order via the Shopify API to trigger the webhook

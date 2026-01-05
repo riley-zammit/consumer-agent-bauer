@@ -135,7 +135,7 @@ async function handleChatSession({
     mcpApiUrl,
   );
 
-  try {
+
     // Send conversation ID to client
     stream.sendMessage({ type: 'id', conversation_id: conversationId });
 
@@ -143,11 +143,12 @@ async function handleChatSession({
     let storefrontMcpTools = [], customerMcpTools = [];
 
     try {
+    // #TODO: Not critical but this network call for each message is inefficient - probably want to either cache or enable update notifications and pull these elsewhere
       storefrontMcpTools = await mcpClient.connectToStorefrontServer();
       customerMcpTools = await mcpClient.connectToCustomerServer();
 
-      console.log(`Connected to MCP with ${storefrontMcpTools.length} tools`);
-      console.log(`Connected to customer MCP with ${customerMcpTools.length} tools`);
+      console.log(`Connected to MCP with ${storefrontMcpTools.length} tools. Available tools: `, storefrontMcpTools);
+      console.log(`Connected to customer MCP with ${customerMcpTools.length} tools. Available tools: `, customerMcpTools);
     } catch (error) {
       console.warn('Failed to connect to MCP servers, continuing without tools:', error.message);
     }
@@ -157,6 +158,7 @@ async function handleChatSession({
     let productsToDisplay = [];
 
     // Save user message to the database
+    console.log(`Saving message ${userMessage} to conversation id ${conversationId}`)
     await saveMessage(conversationId, 'user', userMessage);
 
     // Fetch all messages from the database for this conversation
@@ -275,11 +277,7 @@ async function handleChatSession({
         products: productsToDisplay
       });
     }
-  } catch (error) {
-    // The streaming handler takes care of error handling
-    throw error;
-  }
-}
+  } 
 
 /**
  * Get the customer MCP API URL for a shop

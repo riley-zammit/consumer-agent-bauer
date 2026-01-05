@@ -1,0 +1,297 @@
+---
+description: Create a visual aid, a technical diagram, or any visualization
+globs: 
+alwaysApply: false
+---
+## Format
+Never include "---" to separate sections when writing a doc.
+## Search Documentation and Verification Protocol
+At the beginning of EVERY response to technical questions:
+0.5. Think carefully about the flow being described. Ensure the steps provided are complete, and suggest missing steps if not.
+1. Document the exact search queries used (e.g., "I searched Vault for 'shopify api local pickup detection' and Google for 'shopify.dev admin api location local pickup'")
+2. Summarize search results found or not found
+3. Specify the current API version being referenced (e.g., "According to the Shopify Admin API version 2025-01 documentation")
+4. Follow the strict "No Documentation, No Mention" rule: If a field, parameter, or endpoint cannot be found in current documentation, do not mention it at all - even as a possibility
+
+For ongoing conversations:
+1. Re-verify all technical information against current documentation before each response
+2. Treat each message as requiring fresh verification, even when continuing a previous discussion
+
+### Citation Requirements
+- ALWAYS include hyperlinks to sources directly after providing information
+- Format citations as @Source Name when possible
+- For Vault sources, indicate these are internal references
+- For Google sources, prioritize official Shopify documentation and trusted partners
+- For API-related information, every field, parameter, and endpoint MUST have a direct citation
+- Include the exact path to the information in the documentation (e.g., "Admin API > GraphQL > Location object")
+- When official documentation doesn't mention a requested feature, clearly state: "This feature/field is not documented in the official Shopify documentation I searched"
+- Never invent information - if searches don't yield results, acknowledge limitations
+- Use Exact Shopify API calls in your diagram. Refer to the Shopify documentation.
+
+## API Information Verification Protocol
+When providing information about Shopify APIs, endpoints, fields, or parameters:
+
+1. NEVER mention any API field, parameter, endpoint, or object that you cannot directly verify in Shopify's documentation.
+
+2. For each API element mentioned, you MUST include a direct citation in this format: `fieldName` (source: @Shopify Documentation)
+
+3. If you cannot find documentation for a requested API capability after searching Vault and shopify.dev, explicitly state: "After searching Vault and shopify.dev, I cannot find documentation confirming the existence of [requested information] in Shopify's API."
+
+4. Include search transparency statements such as: "I searched [list sources] for information about [topic] and found the following documented fields: [list with citations]"
+
+5. When showing example API queries or responses:
+   - Only include fields that are documented in official sources
+   - Clearly mark any simplified or partial examples as such
+   - Provide the documentation URL where the complete schema can be found
+
+6. If you're uncertain about any API detail, explicitly state your uncertainty rather than making an educated guess
+
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Mermaid.js Sequence Diagram Rules & Guidelines
+
+This document contains rules, best practices, and patterns for creating effective Mermaid.js sequence diagrams.
+
+Sequence diagrams are ALWAYS to be generated in: ./guides/sequence-diagrams
+
+The user can use the mermaid extensions for Cursor to view and export these documents. 
+
+## Basic Syntax Rules
+
+### 1. Diagram Declaration
+```mermaid
+sequenceDiagram
+    # All sequence diagram content goes here
+```
+
+### 2. Participant Declaration
+```mermaid
+sequenceDiagram
+    participant A as Actor Name
+    participant B as System Component
+    participant C
+```
+
+**Rules:**
+- Use descriptive names for participants
+- Use aliases (`as`) for long names to keep diagram clean
+- Declare participants in order of appearance (left to right)
+- Limit to 6-8 participants for readability
+
+### 3. Message Types
+
+#### Synchronous Messages (Solid Arrow)
+```mermaid
+A->>B: Synchronous call
+```
+
+#### Asynchronous Messages (Solid Arrow)
+```mermaid
+A->>+B: Activate B
+B-->>-A: Return response
+```
+
+#### Return Messages (Dashed Arrow)
+```mermaid
+A->>B: Request
+B-->>A: Response
+```
+
+#### Self Messages
+```mermaid
+A->>A: Internal processing
+```
+
+## Best Practices
+
+### 1. Naming Conventions
+- **Participants**: Use PascalCase or descriptive names
+  - ✅ `User`, `PaymentService`, `Database`
+  - ❌ `u`, `ps`, `db`
+- **Messages**: Use clear, action-oriented descriptions
+  - ✅ `Process Payment`, `Validate User Credentials`
+  - ❌ `do stuff`, `check`
+
+### 2. Flow Organization
+- **Group related interactions** using Notes
+- **Use activation boxes** (`+` and `-`) to show when components are active
+- **Separate different flows** with clear visual breaks
+
+### 3. Message Descriptions
+- Start with action verbs
+- Be specific about what data is being passed
+- Include important parameters in parentheses when relevant
+- Keep descriptions concise but clear
+
+## Advanced Features
+
+### 1. Notes and Comments
+```mermaid
+sequenceDiagram
+    Note over A,B: This explains the interaction
+    Note left of A: Left-side note
+    Note right of B: Right-side note
+```
+
+### 2. Activation Boxes
+```mermaid
+sequenceDiagram
+    A->>+B: Start process
+    B->>+C: Sub-process
+    C-->>-B: Complete
+    B-->>-A: Final result
+```
+
+### 3. Loops
+```mermaid
+sequenceDiagram
+    loop Every 5 minutes
+        A->>B: Health check
+        B-->>A: Status OK
+    end
+```
+
+### 4. Alternative Flows
+```mermaid
+sequenceDiagram
+    A->>B: Request
+    alt Success case
+        B-->>A: Success response
+    else Error case
+        B-->>A: Error response
+    end
+```
+
+### 5. Optional Interactions
+```mermaid
+sequenceDiagram
+    A->>B: Request
+    opt If condition met
+        B->>C: Optional call
+        C-->>B: Response
+    end
+    B-->>A: Final response
+```
+
+## Diagram Structure Guidelines
+
+### 1. Start with Overview
+- Begin with a clear title and description
+- List the main flows or scenarios covered
+- Identify key participants upfront
+
+### 2. Logical Flow Separation
+```mermaid
+sequenceDiagram
+    Note over A,D: Phase 1: Authentication
+    # Authentication interactions here
+    
+    Note over A,D: Phase 2: Data Processing
+    # Processing interactions here
+    
+    Note over A,D: Phase 3: Response Generation
+    # Response interactions here
+```
+
+### 3. Error Handling
+- Include error scenarios in separate `alt` blocks
+- Show error propagation clearly
+- Document recovery mechanisms
+
+### 4. Timing Considerations
+- Use activation boxes to show processing time
+- Include timeouts and retries where relevant
+- Show asynchronous operations clearly
+
+## Common Patterns
+
+### 1. Request-Response Pattern
+```mermaid
+sequenceDiagram
+    Client->>+Server: Request
+    Server->>+Database: Query
+    Database-->>-Server: Results
+    Server-->>-Client: Response
+```
+
+### 2. Publish-Subscribe Pattern
+```mermaid
+sequenceDiagram
+    Publisher->>EventBus: Publish Event
+    EventBus->>Subscriber1: Notify
+    EventBus->>Subscriber2: Notify
+    Subscriber1-->>EventBus: Acknowledge
+    Subscriber2-->>EventBus: Acknowledge
+```
+
+### 3. Authentication Flow
+```mermaid
+sequenceDiagram
+    User->>+AuthService: Login Request
+    AuthService->>+UserDB: Validate Credentials
+    UserDB-->>-AuthService: User Valid
+    AuthService->>+TokenService: Generate Token
+    TokenService-->>-AuthService: JWT Token
+    AuthService-->>-User: Login Success + Token
+```
+
+## Quality Checklist
+
+### Before Publishing a Sequence Diagram:
+
+- [ ] **Clarity**: Can someone unfamiliar with the system understand the flow?
+- [ ] **Completeness**: Are all important interactions included?
+- [ ] **Accuracy**: Do the interactions reflect the actual system behavior?
+- [ ] **Consistency**: Are naming conventions consistent throughout?
+- [ ] **Readability**: Is the diagram not too cluttered or complex?
+- [ ] **Error Handling**: Are error scenarios appropriately documented?
+- [ ] **Documentation**: Is there sufficient context and explanation?
+
+## Common Mistakes to Avoid
+
+1. **Too many participants** - Keep to 6-8 maximum
+2. **Unclear message descriptions** - Be specific about actions
+3. **Missing error flows** - Always consider what can go wrong
+4. **Inconsistent naming** - Stick to chosen conventions
+5. **Overly complex single diagrams** - Break into multiple diagrams if needed
+6. **Missing activation boxes** - Show when components are actively processing
+7. **No explanatory notes** - Add context where interactions might be unclear
+
+## File Organization
+
+### Naming Convention
+- Use descriptive filenames: `user-authentication-flow.md`
+- Include version or date if multiple iterations: `payment-flow-v2.md`
+- Group related diagrams in subdirectories
+
+### File Structure
+```
+guides/
+├── sequence-diagrams/
+│   ├── authentication/
+│   │   ├── user-login-flow.md
+│   │   └── oauth-flow.md
+│   ├── payment/
+│   │   ├── payment-processing.md
+│   │   └── refund-flow.md
+│   └── system/
+│       ├── startup-sequence.md
+│       └── shutdown-sequence.md
+└── mermaid-sequence-diagram-rules.md
+```
+
+## Tools and Validation
+
+### Recommended Tools
+- **Mermaid Live Editor**: https://mermaid.live/
+- **VS Code Extensions**: Mermaid Preview, Markdown Preview Enhanced
+- **GitHub/GitLab**: Native Mermaid rendering in markdown
+
+### Validation Steps
+1. Test in Mermaid Live Editor before committing
+2. Verify rendering in target platform (GitHub, GitLab, etc.)
+3. Review with team members for accuracy
+4. Update documentation when system changes 

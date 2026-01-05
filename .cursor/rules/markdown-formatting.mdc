@@ -1,0 +1,33 @@
+---
+description: Write or edit a markdown (.md) document
+alwaysApply: false
+---
+# Formatting rules
+## Indentation
+When indenting or when writing an unordered list, use bullets (*). Ordered lists are okay.
+
+## Headers
+Do not bold headers
+
+## Horizontal separators
+Don't use horizontal separators (---)
+
+## Emoji usage
+Don't use emojis for formatting. Use emojis to help with emphasis or clarify.
+### Good emoji usage:
+- Highlight key status or outcomes:
+```
+**Decisions Made:**
+- ✅ **External signup flow APPROVED** (non-merchant users need Gorgias access without Shopify access)
+```
+
+### Bad emoji usage:
+As part of a header
+
+```
+📅 **April 2024** - [Initial Engagement](#phase-1-initial-engagement-april---september-2024)
+
+**Feedback Exchange:**
+- **Gorgias → Shopify:** Raises concerns about embedding complexity (multi-agent support, advanced workflows, UX consistency)
+- **Shopify → Gorgias:** Shows willingness to collaborate, schedules meetings
+```
