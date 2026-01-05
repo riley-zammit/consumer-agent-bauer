@@ -2,15 +2,19 @@
 ## Overview
 Additional features partners may want to add
 
-### Features
+### Features (in order of priority)
 1. Customize sales strategy - aggressive/conservative - and boost specific products
 2. Automated returns (i know this is bad - let's demonstrate)
-3. In-app checkout using CSK
+3. Read page context and include it to agent (so we can answer questions about "this product")
+4. In-app checkout using CSK
 
 ### Tech decisions
 1. replace shopify's search with our own
 2. replace shopify's return with our own
 3. augment shopfiy's get_store_facts with our own 
+
+## Customizations
+
 
 # Chat Window Architecture
 

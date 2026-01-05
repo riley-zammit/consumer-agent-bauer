@@ -29,6 +29,7 @@ model Session {
   locale        String?
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
+  products      Product[] // Products belong to a session
 }
 
 model CustomerToken {
@@ -79,4 +80,55 @@ model CustomerAccountUrls {
   tokenUrl         String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+}
+
+model Product {
+  id                String    @id // Shopify GraphQL ID (gid://shopify/Product/...)
+  sessionId         String    // Foreign key to Session
+  session           Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  legacyResourceId  String    // REST API ID
+  handle            String    // URL handle/slug
+  title             String    // Product title/name
+  description       String    // Plain text description
+  descriptionHtml   String?   // HTML formatted description
+  vendor            String?   // Product vendor/brand
+  productType       String?   // Product type category
+  status            String    // ACTIVE, DRAFT, or ARCHIVED
+  tags              String?   // Comma-separated tags
+  featuredImageUrl  String?   // URL of the main product image
+  hasOnlyDefaultVariant Boolean @default(false) // If product has only 1 default variant
+  isGiftCard        Boolean   @default(false) // Whether product is a gift card
+  requiresSellingPlan Boolean @default(false) // If requires subscription
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  syncedAt          DateTime  @default(now()) // When last synced from Shopify
+  variants          ProductVariant[] // Product variants
+
+  @@unique([sessionId, handle]) // Unique handle per session
+  @@index([sessionId])
+  @@index([status])
+  @@index([productType])
+}
+
+model ProductVariant {
+  id                String    @id // Shopify GraphQL ID (gid://shopify/ProductVariant/...)
+  productId         String    // Foreign key to Product
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title             String    // Variant title (e.g., "Large / Red")
+  sku               String?   // Stock keeping unit
+  barcode           String?   // Barcode value
+  position          Int       // Display position
+  price             String    // Price in shop currency (stored as string for precision)
+  compareAtPrice    String?   // Compare at price for sales
+  inventoryQuantity Int?      // Available inventory
+  inventoryPolicy   String    @default("DENY") // DENY or CONTINUE
+  availableForSale  Boolean   @default(true)
+  taxable           Boolean   @default(true)
+  imageUrl          String?   // Variant specific image URL
+  selectedOptions   String?   // JSON string of option values
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([productId])
+  @@index([sku])
 }
