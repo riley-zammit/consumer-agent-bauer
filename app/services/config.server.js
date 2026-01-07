@@ -24,15 +24,19 @@ export const AppConfig = {
 
     // Tool Configuration
     tools: {
-        productSearchName: "search_shop_catalog",
+        productSearchName: "search_products",
         maxProductsToDisplay: 3
     },
 
-    //using additional tools
-    customTools: {
-        search_shop_catalog_custom: {},
-        return_custom: {}, //we probably want human in the loop for returns (that's why we have request_return?)
-        get_ticket_history: {}, //for customer support
+    // MCP Source Configuration
+    // Enable/disable different tool sources for the agent
+    mcp: {
+        // Storefront MCP - product search, cart operations, shop policies
+        enableStorefrontMcp: true,
+        // Customer MCP - order status, returns, store credit (requires customer auth)
+        enableCustomerMcp: true,
+        // Local tools - custom search, demo return flow
+        enableLocalTools: true,
     }
 
 };

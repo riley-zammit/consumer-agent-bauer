@@ -4,6 +4,7 @@ Additional features partners may want to add
 
 ### Features (in order of priority)
 1. Customize sales strategy - aggressive/conservative - and boost specific products
+1.5 Sync collections and boost specific collections - Smart + manual
 2. Automated returns (i know this is bad - let's demonstrate)
 3. Read page context and include it to agent (so we can answer questions about "this product")
 4. In-app checkout using CSK

@@ -7,7 +7,7 @@ import { saveMessage, getConversationHistory, storeCustomerAccountUrls, getCusto
 import AppConfig from "../services/config.server";
 import { createSseStream } from "../services/streaming.server";
 import { createClaudeService } from "../services/claude.server";
-import { createToolService } from "../services/tool.server";
+import { createToolService } from "../services/tool-manager.server";
 
 
 /**
@@ -140,15 +140,17 @@ async function handleChatSession({
     stream.sendMessage({ type: 'id', conversation_id: conversationId });
 
     // Connect to MCP servers and get available tools
-    let storefrontMcpTools = [], customerMcpTools = [];
-
+    let storefrontMcpTools = [], customerMcpTools = [], localMcpTools = [];
+// Always register app-provided local tools
+    localMcpTools = mcpClient.connectToLocalTools();
     try {
     // #TODO: Not critical but this network call for each message is inefficient - probably want to either cache or enable update notifications and pull these elsewhere
       storefrontMcpTools = await mcpClient.connectToStorefrontServer();
       customerMcpTools = await mcpClient.connectToCustomerServer();
 
-      console.log(`Connected to MCP with ${storefrontMcpTools.length} tools. Available tools: `, storefrontMcpTools);
-      console.log(`Connected to customer MCP with ${customerMcpTools.length} tools. Available tools: `, customerMcpTools);
+      console.log(`Connected to MCP with ${storefrontMcpTools.length} tools. Available tools: `, storefrontMcpTools.map((tool) => tool.name));
+      console.log(`Connected to customer MCP with ${customerMcpTools.length} tools. Available tools: `, customerMcpTools.map((tool) => tool.name));
+      console.log(`Connected to local MCPs with ${localMcpTools.length} tools. Available tools: `, localMcpTools.map((tool) => tool.name))
     } catch (error) {
       console.warn('Failed to connect to MCP servers, continuing without tools:', error.message);
     }
@@ -186,7 +188,7 @@ async function handleChatSession({
         {
           messages: conversationHistory,
           promptType,
-          tools: mcpClient.tools
+          tools: [...(mcpClient.tools || [])]
         },
         {
           // Handle text chunks

@@ -132,3 +132,11 @@ model ProductVariant {
   @@index([productId])
   @@index([sku])
 }
+
+model SearchBoostConfig {
+  /// Shop domain (e.g. "example.myshopify.com"). One config row per shop.
+  shop      String   @id
+  rulesJson String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

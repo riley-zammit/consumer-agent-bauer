@@ -35,6 +35,9 @@ export function createClaudeService(apiKey = process.env.CLAUDE_API_KEY) {
     // Get system prompt from configuration or use default
     const systemInstruction = getSystemPrompt(promptType);
 
+    /**
+     * Begin declarative setup of the stream
+     */
     // Create stream
     const stream = await anthropic.messages.stream({
       model: AppConfig.api.defaultModel,
@@ -56,6 +59,9 @@ export function createClaudeService(apiKey = process.env.CLAUDE_API_KEY) {
     if (streamHandlers.onContentBlock) {
       stream.on('contentBlock', streamHandlers.onContentBlock);
     }
+    /**
+     * End declarative setup of the stream
+     */
 
     // Wait for final message
     const finalMessage = await stream.finalMessage();
