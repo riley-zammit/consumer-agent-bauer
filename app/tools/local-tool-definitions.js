@@ -152,6 +152,45 @@ CRITICAL: The confirm parameter MUST be true. This is a safeguard - never set co
       required: ["return_id", "confirm"],
     },
   },
+  {
+    name: "search_collections",
+    description: `Find collections that contain specific products. Use this tool IMMEDIATELY after calling search_products_custom to show customers relevant product categories and help them browse related items.
+
+WHEN TO USE:
+- ALWAYS call this tool after search_products_custom returns results
+- When you want to show the customer what categories/collections the found products belong to
+- When customer might want to browse more products in the same category
+- To provide context about where products are organized in the store
+
+WHEN NOT TO USE:
+- Before calling search_products_custom (you need product IDs first)
+- When search_products_custom returned no results
+- When customer explicitly doesn't want category suggestions
+
+WORKFLOW:
+1. Call search_products_custom first to find products
+2. Extract the product IDs from the search results
+3. Call search_collections with those product IDs
+4. Present collections to customer as browsing options (e.g., "These products are from our Snowboards and Sale collections")
+
+OUTPUT: Returns an array of collections with id, title, handle, description, collectionType (smart/manual), and the count of matching products from your search in each collection.
+
+TIPS:
+- Pass all product IDs from the search results for comprehensive collection matching
+- Collections help customers discover more products they might like
+- Smart collections are auto-curated; manual collections are hand-picked by the merchant`,
+    input_schema: {
+      type: "object",
+      properties: {
+        product_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of Shopify product GIDs (e.g., ['gid://shopify/Product/123', 'gid://shopify/Product/456']). Get these from search_products_custom results.",
+        },
+      },
+      required: ["product_ids"],
+    },
+  },
 ];
 
 function asTextContent(payload) {
@@ -193,6 +232,70 @@ async function getAccessTokenForShop(shopDomain) {
   });
 
   return session?.accessToken || null;
+}
+
+/**
+ * Search for collections that contain the given product IDs
+ * @param {Object} params
+ * @param {string} params.shopDomain - The shop domain
+ * @param {string[]} params.productIds - Array of product GIDs to search for
+ * @returns {Promise<Array>} Collections containing the products
+ */
+async function searchCollectionsByProductIds({ shopDomain, productIds }) {
+  const shop = normalizeShopDomain(shopDomain);
+  if (!shop) return [];
+
+  // Get the session for this shop
+  const session = await prisma.session.findFirst({
+    where: { shop },
+    select: { id: true },
+  });
+
+  if (!session) return [];
+
+  // Find all product-collection relationships for the given product IDs
+  const productCollections = await prisma.productCollection.findMany({
+    where: {
+      productId: { in: productIds },
+    },
+    select: {
+      collectionId: true,
+      productId: true,
+    },
+  });
+
+  if (productCollections.length === 0) return [];
+
+  // Get unique collection IDs and count products per collection
+  const collectionProductCounts = {};
+  for (const pc of productCollections) {
+    collectionProductCounts[pc.collectionId] = (collectionProductCounts[pc.collectionId] || 0) + 1;
+  }
+
+  const collectionIds = Object.keys(collectionProductCounts);
+
+  // Fetch collection details (only for collections belonging to this session)
+  const collections = await prisma.collection.findMany({
+    where: {
+      id: { in: collectionIds },
+      sessionId: session.id,
+    },
+    select: {
+      id: true,
+      handle: true,
+      title: true,
+      description: true,
+      collectionType: true,
+      imageUrl: true,
+      productsCount: true,
+    },
+  });
+
+  // Add the matching product count to each collection
+  return collections.map(collection => ({
+    ...collection,
+    matchingProductsCount: collectionProductCounts[collection.id] || 0,
+  }));
 }
 
 /**
@@ -276,6 +379,25 @@ export async function executeLocalTool(toolName, toolArgs, context = {}) {
         }
 
         return asTextContent(result);
+      }
+
+      case "search_collections": {
+        const productIds = toolArgs?.product_ids;
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+          return {
+            error: {
+              type: "invalid_input",
+              data: "product_ids must be a non-empty array of product GIDs",
+            },
+          };
+        }
+
+        const collections = await searchCollectionsByProductIds({
+          shopDomain: context.shopDomain,
+          productIds,
+        });
+
+        return asTextContent({ collections });
       }
 
       default:

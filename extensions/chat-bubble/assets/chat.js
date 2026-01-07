@@ -17,6 +17,7 @@
         UI: {
             elements: {},
             isMobile: false,
+            isMaximized: false,
 
             /**
              * Initialize UI elements and event listeners
@@ -35,6 +36,9 @@
                     sendButton: container.querySelector('.shop-ai-chat-send'),
                     messagesContainer: container.querySelector('.shop-ai-chat-messages')
                 };
+
+                // Create and insert maximize button next to close button
+                this.createMaximizeButton();
 
                 // Detect mobile device
                 this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -147,6 +151,68 @@
                     chatInput.blur();
                     document.body.classList.remove('shop-ai-chat-open');
                 }
+
+                // Also exit maximized mode when closing
+                if (this.isMaximized) {
+                    this.toggleMaximize();
+                }
+            },
+
+            /**
+             * Create and insert the maximize button
+             */
+            createMaximizeButton: function () {
+                const { closeButton } = this.elements;
+                if (!closeButton) return;
+
+                // Create maximize button
+                const maximizeButton = document.createElement('button');
+                maximizeButton.classList.add('shop-ai-chat-maximize');
+                maximizeButton.setAttribute('aria-label', 'Maximize chat window');
+                maximizeButton.innerHTML = `
+                    <svg class="maximize-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2 5V2H5M14 5V2H11M2 11V14H5M14 11V14H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <svg class="minimize-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                        <path d="M5 2V5H2M11 2V5H14M5 14V11H2M11 14V11H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                `;
+
+                // Insert before close button
+                closeButton.parentNode.insertBefore(maximizeButton, closeButton);
+
+                // Store reference
+                this.elements.maximizeButton = maximizeButton;
+
+                // Add click listener
+                maximizeButton.addEventListener('click', () => this.toggleMaximize());
+            },
+
+            /**
+             * Toggle maximized state of chat window
+             */
+            toggleMaximize: function () {
+                const { chatWindow, maximizeButton } = this.elements;
+                if (!chatWindow || !maximizeButton) return;
+
+                this.isMaximized = !this.isMaximized;
+
+                if (this.isMaximized) {
+                    chatWindow.classList.add('maximized');
+                    maximizeButton.setAttribute('aria-label', 'Restore chat window');
+                    maximizeButton.querySelector('.maximize-icon').style.display = 'none';
+                    maximizeButton.querySelector('.minimize-icon').style.display = 'block';
+                    document.body.classList.add('shop-ai-chat-maximized');
+                } else {
+                    chatWindow.classList.remove('maximized');
+                    maximizeButton.setAttribute('aria-label', 'Maximize chat window');
+                    maximizeButton.querySelector('.maximize-icon').style.display = 'block';
+                    maximizeButton.querySelector('.minimize-icon').style.display = 'none';
+                    document.body.classList.remove('shop-ai-chat-maximized');
+                }
+
+                // Scroll to bottom after resize
+                this.scrollToBottom();
             },
 
             /**

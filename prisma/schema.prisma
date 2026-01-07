@@ -103,6 +103,7 @@ model Product {
   updatedAt         DateTime  @updatedAt
   syncedAt          DateTime  @default(now()) // When last synced from Shopify
   variants          ProductVariant[] // Product variants
+  collections       ProductCollection[] // Collections this product belongs to
 
   @@unique([sessionId, handle]) // Unique handle per session
   @@index([sessionId])
@@ -139,4 +140,43 @@ model SearchBoostConfig {
   rulesJson String   @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Collection {
+  id              String    @id // Shopify GraphQL ID (gid://shopify/Collection/...)
+  sessionId       String    // Foreign key to Session
+  legacyResourceId String   // REST API ID
+  handle          String    // URL handle/slug
+  title           String    // Collection title
+  description     String    // Plain text description
+  descriptionHtml String?   // HTML formatted description
+  collectionType  String    // "smart" or "manual"
+  sortOrder       String?   // How products are sorted (MANUAL, BEST_SELLING, etc.)
+  imageUrl        String?   // Collection image URL
+  productsCount   Int       @default(0) // Number of products in collection
+  ruleSet         String?   // JSON string of rules for smart collections
+  disjunctive     Boolean   @default(false) // For smart: true=OR, false=AND
+  publishedAt     DateTime? // When collection was published
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  syncedAt        DateTime  @default(now()) // When last synced from Shopify
+  products        ProductCollection[] // Many-to-many with Product
+
+  @@unique([sessionId, handle]) // Unique handle per session
+  @@index([sessionId])
+  @@index([collectionType])
+}
+
+model ProductCollection {
+  id           String     @id @default(cuid())
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  position     Int?       // Position of product within the collection
+  createdAt    DateTime   @default(now())
+
+  @@unique([productId, collectionId]) // Each product-collection pair is unique
+  @@index([productId])
+  @@index([collectionId])
 }
