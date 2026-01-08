@@ -32,11 +32,11 @@ export const AppConfig = {
     // Enable/disable different tool sources for the agent
     mcp: {
         // Storefront MCP - product search, cart operations, shop policies
-        enableStorefrontMcp: false,
+        enableStorefrontMcp: true,
         // Customer MCP - order status, returns, store credit (requires customer auth)
         enableCustomerMcp: true,
         // Local tools - custom search, demo return flow
-        enableLocalTools: true,
+        enableLocalTools: false,
     }
 
 };

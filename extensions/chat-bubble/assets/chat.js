@@ -12,6 +12,140 @@
      */
     const ShopAIChat = {
         /**
+         * Local cart ID tracking for detecting new cart creation (agent-first flow)
+         */
+        localCartId: null,
+
+        /**
+         * Cart cookie utilities for shared cart functionality
+         */
+        CartCookie: {
+            /**
+             * Read the cart ID from the browser's cart cookie
+             * @returns {string|null} The cart GID or null if no cart cookie exists
+             */
+            getCartIdFromCookie: function () {
+                const match = document.cookie.match(/(?:^|; )cart=([^;]*)/);
+                return match ? decodeURIComponent(match[1]) : null;
+            },
+
+            /**
+             * Set the cart cookie (used as fallback for SSE streams where Set-Cookie headers may not work)
+             * Only call this when the agent creates a NEW cart (agent-first flow)
+             * @param {string} cartId - The cart GID to store
+             */
+            setCartCookie: function (cartId) {
+                if (cartId) {
+                    document.cookie = `cart=${encodeURIComponent(cartId)}; path=/; max-age=31536000; SameSite=Lax`;
+                }
+            },
+
+            /**
+             * Refresh the theme's cart count display after agent add-to-cart
+             * This ensures the theme UI reflects items added via the agent
+             * Uses Section Rendering API to update cart sections, with text fallback
+             */
+            refreshCartCount: async function () {
+                try {
+                    // Step 1: Fetch cart data
+                    const response = await fetch('/cart.js');
+                    if (!response.ok) return;
+                    const cart = await response.json();
+
+                    // Step 2: Try to refresh cart sections via Section Rendering API
+                    await this.refreshCartSections();
+
+                    // Step 3: Fallback - update text content for themes without sections
+                    this.updateCartCountText(cart.item_count);
+
+                    // Step 4: Dispatch custom event for themes that listen
+                    document.dispatchEvent(new CustomEvent('cart:updated', {
+                        detail: { itemCount: cart.item_count, cart: cart }
+                    }));
+                } catch (error) {
+                    console.warn('Failed to refresh cart:', error);
+                }
+            },
+
+            /**
+             * Refresh cart-related sections using Section Rendering API
+             * Gracefully handles themes without these sections
+             */
+            refreshCartSections: async function () {
+                // Common cart section IDs across Shopify themes
+                const sectionIds = [
+                    'cart-icon-bubble',      // Dawn and many themes
+                    'cart-drawer',           // Cart drawer
+                    'cart-notification'      // Add-to-cart notification
+                ].join(',');
+
+                try {
+                    const root = window.Shopify?.routes?.root || '/';
+                    const response = await fetch(`${root}?sections=${sectionIds}`);
+                    if (!response.ok) return;
+
+                    const sections = await response.json();
+                    this.updateCartSections(sections);
+                } catch (error) {
+                    // Section rendering failed - fall back to text update
+                    console.warn('Section rendering unavailable:', error);
+                }
+            },
+
+            /**
+             * Replace section HTML in the DOM
+             * @param {Object} sections - Object mapping section IDs to their HTML content
+             */
+            updateCartSections: function (sections) {
+                Object.entries(sections).forEach(([sectionId, html]) => {
+                    if (!html) return; // Section doesn't exist in theme
+
+                    const selector = `#shopify-section-${sectionId}`;
+                    const existingSection = document.querySelector(selector);
+
+                    if (existingSection) {
+                        // Create temp container to parse HTML
+                        const temp = document.createElement('div');
+                        temp.innerHTML = html;
+                        const newSection = temp.firstElementChild;
+
+                        if (newSection) {
+                            // Replace existing section with new HTML
+                            existingSection.replaceWith(newSection);
+                        }
+                    }
+                });
+            },
+
+            /**
+             * Fallback: Update cart count text elements
+             * Used for themes without standard section structures
+             * @param {number} itemCount - The number of items in the cart
+             */
+            updateCartCountText: function (itemCount) {
+                const selectors = [
+                    '.cart-count',
+                    '.cart-count-bubble',
+                    '[data-cart-count]',
+                    '.header-cart-count',
+                    '.cart-item-count',
+                    '#CartCount',
+                    '.js-cart-count',
+                    '.cart-notification-count'
+                ];
+
+                selectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.textContent = itemCount;
+                        if (itemCount > 0) {
+                            el.style.display = '';
+                        }
+                    });
+                });
+            }
+        },
+
+        /**
          * UI-related elements and functionality
          */
         UI: {
@@ -541,10 +675,13 @@
 
                 try {
                     const promptType = window.shopChatConfig?.promptType || "standardAssistant";
+                    // Read cart ID from cookie and pass to server for shared cart functionality
+                    const cartId = ShopAIChat.CartCookie.getCartIdFromCookie();
                     const requestBody = JSON.stringify({
                         message: userMessage,
                         conversation_id: conversationId,
-                        prompt_type: promptType
+                        prompt_type: promptType,
+                        cart_id: cartId  // null is valid - server will create new cart if needed
                     });
 
                     const streamUrl = 'https://localhost:3458/chat';
@@ -678,6 +815,17 @@
 
                     case 'content_block_complete':
                         ShopAIChat.UI.showTypingIndicator();
+                        break;
+
+                    case 'cart_updated':
+                        // Handle cart updates from agent add-to-cart operations
+                        // Only set cookie if we didn't have a cart before (agent-first flow)
+                        if (data.cart?.id && !ShopAIChat.localCartId) {
+                            ShopAIChat.CartCookie.setCartCookie(data.cart.id);
+                            ShopAIChat.localCartId = data.cart.id;
+                        }
+                        // Always refresh theme cart count after agent adds to cart
+                        ShopAIChat.CartCookie.refreshCartCount();
                         break;
                 }
             },
@@ -945,25 +1093,261 @@
                 button.classList.add('shop-ai-add-to-cart');
                 button.textContent = 'Add to Cart';
                 button.dataset.productId = product.id;
+                button.dataset.productTitle = product.title;
+                // Store variants if available
+                if (product.variants && product.variants.length > 0) {
+                    button.dataset.variants = JSON.stringify(product.variants);
+                }
 
-                // Add click handler for the button
-                button.addEventListener('click', function () {
-                    // Send message to add this product to cart
-                    const input = document.querySelector('.shop-ai-chat-input input');
-                    if (input) {
-                        input.value = `Add ${product.title} to my cart`;
-                        // Trigger a click on the send button
-                        const sendButton = document.querySelector('.shop-ai-chat-send');
-                        if (sendButton) {
-                            sendButton.click();
-                        }
-                    }
+                // Add click handler for the button - use AJAX API
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    ShopAIChat.Cart.addToCart(product, button);
                 });
 
                 info.appendChild(button);
                 card.appendChild(info);
 
                 return card;
+            }
+        },
+
+        /**
+         * Cart-related functionality using Server-side Storefront API
+         */
+        Cart: {
+            /**
+             * Get the current cart ID from the cart cookie
+             * Uses the shared cart cookie mechanism for browser/agent cart unification
+             * @returns {string|null} Cart ID (GID format) or null
+             */
+            getCartId: function () {
+                return ShopAIChat.CartCookie.getCartIdFromCookie();
+            },
+
+            /**
+             * Store cart ID - only used as fallback when agent creates new cart
+             * The primary mechanism is Set-Cookie header from server
+             * @param {string} cartId - The cart GID
+             */
+            setCartId: function (cartId) {
+                if (cartId && !ShopAIChat.localCartId) {
+                    // Only set cookie if we didn't have a cart (agent-first flow)
+                    ShopAIChat.CartCookie.setCartCookie(cartId);
+                    ShopAIChat.localCartId = cartId;
+                }
+            },
+
+            /**
+             * Add a product to cart using Server-side Storefront API
+             * @param {Object} product - Product data with id, title, variants
+             * @param {HTMLElement} button - The button element that was clicked
+             */
+            addToCart: async function (product, button) {
+                const messagesContainer = document.querySelector('.shop-ai-chat-messages');
+
+                // Set button to loading state
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.classList.add('loading');
+                button.textContent = 'Adding...';
+
+                try {
+                    // Extract variant ID (as GID) from product
+                    const variantId = this.getVariantGid(product);
+
+                    if (!variantId) {
+                        throw new Error('No variant available for this product');
+                    }
+
+                    // Get existing cart ID if available
+                    const cartId = this.getCartId();
+
+                    // Call the server-side Storefront API endpoint
+                    const response = await fetch('https://localhost:3458/api/cart-add', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            variantId: variantId,
+                            productTitle: product.title,
+                            quantity: 1,
+                            cartId: cartId
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (!result.success) {
+                        throw new Error(result.error || result.message || 'Failed to add to cart');
+                    }
+
+                    // Store the cart ID for future operations
+                    if (result.cart && result.cart.id) {
+                        this.setCartId(result.cart.id);
+                    }
+
+                    // Refresh theme cart count from /cart.js for accurate count
+                    ShopAIChat.CartCookie.refreshCartCount();
+
+                    // Success! Update button state
+                    button.classList.remove('loading');
+                    button.classList.add('success');
+                    button.textContent = 'Added!';
+
+                    // Display the confirmation message from the server
+                    if (result.message) {
+                        ShopAIChat.Message.add(result.message, 'assistant', messagesContainer);
+                    }
+
+                    // Reset button after delay
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.classList.remove('success');
+                        button.textContent = originalText;
+                    }, 2000);
+
+                } catch (error) {
+                    console.error('Add to cart error:', error);
+
+                    // Error state
+                    button.classList.remove('loading');
+                    button.classList.add('error');
+                    button.textContent = 'Error';
+
+                    // Show error message
+                    ShopAIChat.Message.add(
+                        `Sorry, I couldn't add "${product.title}" to your cart. ${error.message}`,
+                        'assistant',
+                        messagesContainer
+                    );
+
+                    // Reset button after delay
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.classList.remove('error');
+                        button.textContent = originalText;
+                    }, 2000);
+                }
+            },
+
+            /**
+             * Extract the variant GID from a product object
+             * Storefront API requires GID format (gid://shopify/ProductVariant/123)
+             * @param {Object} product - Product data
+             * @returns {string|null} The variant GID or null if not found
+             */
+            getVariantGid: function (product) {
+                // Check if product has variants array
+                if (product.variants && product.variants.length > 0) {
+                    // Get the first available variant
+                    const availableVariant = product.variants.find(v => v.available !== false) || product.variants[0];
+                    if (availableVariant.id) {
+                        return this.ensureGidFormat(availableVariant.id, 'ProductVariant');
+                    }
+                }
+
+                // Check if product has a single variant_id
+                if (product.variant_id) {
+                    return this.ensureGidFormat(product.variant_id, 'ProductVariant');
+                }
+
+                // Check for first_variant_id
+                if (product.first_variant_id) {
+                    return this.ensureGidFormat(product.first_variant_id, 'ProductVariant');
+                }
+
+                // If product.id looks like a variant (not a product ID)
+                if (product.id && product.id.includes('/ProductVariant/')) {
+                    return product.id;
+                }
+
+                return null;
+            },
+
+            /**
+             * Ensure an ID is in GID format
+             * @param {string|number} id - The ID which may or may not be a GID
+             * @param {string} type - The Shopify resource type (e.g., 'ProductVariant')
+             * @returns {string} The ID in GID format
+             */
+            ensureGidFormat: function (id, type) {
+                if (typeof id === 'string' && id.startsWith('gid://shopify/')) {
+                    return id;
+                }
+                // Extract numeric ID if already in some GID format
+                const numericId = typeof id === 'number' ? id : this.extractNumericId(id);
+                if (numericId) {
+                    return `gid://shopify/${type}/${numericId}`;
+                }
+                return null;
+            },
+
+            /**
+             * Extract numeric ID from a Shopify GID string or number
+             * @param {string|number} id - The ID which may be a GID string
+             * @returns {number|null} The numeric ID or null
+             */
+            extractNumericId: function (id) {
+                if (typeof id === 'number') {
+                    return id;
+                }
+                if (typeof id === 'string') {
+                    // Handle GID format: "gid://shopify/ProductVariant/123456"
+                    const match = id.match(/\/(\d+)$/);
+                    if (match) {
+                        return parseInt(match[1], 10);
+                    }
+                    // Try parsing as plain number string
+                    const parsed = parseInt(id, 10);
+                    if (!isNaN(parsed)) {
+                        return parsed;
+                    }
+                }
+                return null;
+            },
+
+            /**
+             * Try to update the theme's cart count display
+             * @param {number} count - New cart item count
+             */
+            updateThemeCartCount: function (count) {
+                if (typeof count !== 'number') return;
+
+                // Common cart count selectors used by various themes
+                const cartCountSelectors = [
+                    '.cart-count',
+                    '.cart-count-bubble',
+                    '[data-cart-count]',
+                    '.header-cart-count',
+                    '.cart-item-count',
+                    '#CartCount',
+                    '.js-cart-count',
+                    '.cart-notification-count'
+                ];
+
+                cartCountSelectors.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        el.textContent = count;
+                        // Show the element if it was hidden
+                        if (count > 0) {
+                            el.style.display = '';
+                        }
+                    });
+                });
+
+                // Dispatch custom event for themes that listen
+                document.dispatchEvent(new CustomEvent('cart:updated', {
+                    detail: { itemCount: count }
+                }));
+
+                // Also try to trigger Shopify's built-in cart update event
+                if (window.Shopify && window.Shopify.theme && window.Shopify.theme.name) {
+                    document.dispatchEvent(new CustomEvent('cart:refresh'));
+                }
             }
         },
 
@@ -976,6 +1360,9 @@
             if (!container) return;
 
             this.UI.init(container);
+
+            // Initialize local cart ID from cookie for tracking new cart creation
+            this.localCartId = this.CartCookie.getCartIdFromCookie();
 
             // Check for existing conversation
             const conversationId = sessionStorage.getItem('shopAiConversationId');

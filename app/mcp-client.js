@@ -14,8 +14,11 @@ class MCPClient {
      * @param {string} hostUrl - The base URL for the shop
      * @param {string} conversationId - ID for the current conversation
      * @param {string} shopId - ID of the Shopify shop
+     * @param {string} customerMcpEndpoint - Optional customer MCP endpoint
+     * @param {Object} options - Additional options
+     * @param {string} [options.cartId] - Optional existing cart ID for shared cart functionality
      */
-    constructor(hostUrl, conversationId, shopId, customerMcpEndpoint) {
+    constructor(hostUrl, conversationId, shopId, customerMcpEndpoint, options = {}) {
         this.tools = [];
         this.customerTools = [];
         this.storefrontTools = [];
@@ -29,6 +32,8 @@ class MCPClient {
         this.customerAccessToken = "";
         this.conversationId = conversationId;
         this.shopId = shopId;
+        // Cart ID for shared cart functionality (passed from browser's cart cookie)
+        this.cartId = options.cartId || null;
     }
 
     /**
@@ -290,6 +295,7 @@ class MCPClient {
             shopDomain: this.hostUrl,
             conversationId: this.conversationId,
             shopId: this.shopId,
+            cartId: this.cartId,
         });
     }
 

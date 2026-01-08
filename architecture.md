@@ -455,6 +455,43 @@ Token polling detects authorization
 Automatically retries original request
 ```
 
+### 5. Tool Chaining (Agentic Loop)
+
+Claude operates in an **agentic loop** where it can call multiple tools sequentially within a single conversation turn before generating a final response. This enables powerful workflows where tool descriptions instruct Claude to chain tools together.
+
+**Example**: `search_products_custom` instructs Claude to always call `search_collections` immediately after to enrich results with collection context.
+
+```
+User: "Show me snowboards"
+    ↓
+Claude decides to call search_products_custom
+    ↓
+Server executes tool, streams: { type: "tool_use", tool: "search_products_custom" }
+    ↓
+Tool result returned to Claude (products found)
+    ↓
+Claude reads tool description: "ALWAYS call search_collections after..."
+    ↓
+Claude decides to call search_collections with product IDs
+    ↓
+Server executes tool, streams: { type: "tool_use", tool: "search_collections" }
+    ↓
+Tool result returned to Claude (collections found)
+    ↓
+Claude synthesizes BOTH results into single response
+    ↓
+Server streams: { type: "chunk", chunk: "I found 5 snowboards..." }
+    ↓
+Server streams: { type: "end_turn" }
+```
+
+
+**Key Points**:
+- No additional code needed to chain tools—Claude follows instructions in tool descriptions
+- Tool results are NOT shown to the user individually; only the final synthesized response is displayed
+- The loop can chain any number of tools (limited by max tokens and API constraints)
+- Each tool call adds latency, so chain only when the combined result provides meaningful value
+
 ## Communication Protocols
 
 ### 1. Client → Server
@@ -535,6 +572,74 @@ Automatically retries original request
   }
 }
 ```
+
+## Shared Cart Architecture
+
+The chat widget and Shopify theme share a single cart via Shopify's native `cart` cookie mechanism. This enables seamless cart continuity between traditional storefront interactions and agent-assisted additions.
+
+### How the Cart Cookie Works
+
+Shopify's storefront uses a cookie named `cart` to track the active cart session. This cookie contains the Storefront API cart GID (Global ID) and is automatically managed by Shopify's infrastructure.
+
+**Key Implementation Details:**
+- **Cookie name**: Must be exactly `cart` (case-sensitive)
+- **Cookie value**: Storefront API cart GID (e.g., `gid://shopify/Cart/Z2NwLXVzLWVhc3QxOjAxSk...`)
+- **Cart ID from cookie**: `c.value: hWN7NiTT8mFXH9qZz1NTUZ2w%3Fkey%3D9ee5e8a38a1c711ac1da86863cd800a7`
+- **Domain scope**: Set on the shop's domain, accessible to all pages
+- **AJAX API behavior**: When using `/cart/add.js`, Shopify automatically creates/updates this cookie
+- **Storefront API behavior**: When creating a cart via GraphQL, you must manually set this cookie in the response
+
+### Browser, Agent, and Shopify Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              BROWSER                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌──────────────────┐     ┌──────────────────┐     ┌────────────────┐  │
+│  │   Theme Cart     │     │   Chat Widget    │     │  cart Cookie   │  │
+│  │   (drawer/page)  │     │   (chat.js)      │     │                │  │
+│  └────────┬─────────┘     └────────┬─────────┘     └───────┬────────┘  │
+│           │                        │                       │           │
+│           │ reads/writes           │ reads                 │           │
+│           └────────────────────────┼───────────────────────┘           │
+│                                    │                                    │
+└────────────────────────────────────┼────────────────────────────────────┘
+                                     │ sends cart ID
+                                     ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                           AGENT SERVER                                  │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  cart.server.js                                                  │   │
+│  │  ┌─────────────────┐    ┌──────────────────────────────────┐    │   │
+│  │  │ If cartId:      │    │ If no cartId:                    │    │   │
+│  │  │ cartLinesAdd()  │    │ cartCreate() → Set-Cookie: cart  │    │   │
+│  │  └─────────────────┘    └──────────────────────────────────┘    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                    │                                    │
+└────────────────────────────────────┼────────────────────────────────────┘
+                                     │ Storefront API
+                                     ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                              SHOPIFY                                    │
+├────────────────────────────────────────────────────────────────────────┤
+│  ┌────────────────┐    ┌────────────────────┐    ┌─────────────────┐   │
+│  │ Cart Object    │◄───│ Storefront API     │    │ AJAX API        │   │
+│  │ (persisted)    │    │ (GraphQL)          │    │ (/cart/*.js)    │   │
+│  └────────────────┘    └────────────────────┘    └─────────────────┘   │
+│                                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Shared Cart Limitations
+
+1. **Products must be published**: Only products with "Online Store" sales channel enabled can be added to the cart
+2. **Cart expiration**: Storefront API carts expire after 10 days of inactivity
+3. **Multi-currency**: Cart is created in the shop's default currency; changing currency may require cart recreation
+4. **Inventory**: Cart does not reserve inventory; items may become unavailable before checkout
+5. **Cookie scope**: Third-party cookie restrictions may affect cross-domain scenarios
 
 ## Key Design Patterns
 
@@ -729,6 +834,369 @@ class MCPClient {
 - Performance is critical
 - Tools need direct access to application state
 - Simpler deployment is preferred
+
+## Add-to-Cart Implementations
+
+The application supports three different add-to-cart flows, each with distinct trade-offs. All implementations share common utilities in `app/services/cart.server.js` for DRY architecture.
+
+### Implementation 1: AJAX API
+
+Uses Shopify's native AJAX Cart API directly from the browser. Partners are not likely to build this becuase it reuqires the agent to run on a Shopify storefront environment.
+
+**Files:**
+- `extensions/chat-bubble/assets/chat.js` — `ShopAIChat.Cart` module
+- `app/routes/api.cart-confirmed.jsx` — Confirmation endpoint
+- `extensions/chat-bubble/assets/chat.css` — Button states
+
+**Data Flow:**
+```
+User clicks "Add to Cart"
+    ↓
+Button enters loading state
+    ↓
+JavaScript calls Shopify's /cart/add.js (client-side)
+    ├── Variant ID extracted from product data
+    └── Uses fetch() with FormData
+    ↓
+Shopify responds with cart JSON
+    ↓
+On success: POST to /api/cart-confirmed
+    ├── conversation_id
+    ├── product_title
+    ├── quantity
+    └── success: true
+    ↓
+Server saves confirmation message to conversation history
+    ↓
+Client displays confirmation as assistant message
+    ↓
+Button shows "Added ✓" state (2 seconds)
+```
+
+**Shared Cart Data Flow (AJAX API):**
+```
+Theme "Add to Cart" Button
+    ↓
+AJAX API (/cart/add.js)
+    ↓
+Shopify sets `cart` cookie automatically
+    ↓
+Agent reads `cart` cookie from request
+    ↓
+Agent uses existing cart ID for any subsequent operations
+    ↓
+Theme cart drawer shows all items (same cart)
+```
+
+The AJAX API provides the simplest shared cart experience because Shopify handles all cookie management automatically. When a user adds items via the theme, the `cart` cookie is set. When the agent later needs to reference or modify the cart, it reads this cookie and operates on the same cart.
+
+**Cart Icon UI Refresh (Section Rendering API):**
+
+The AJAX API supports **bundled section rendering**, allowing cart section HTML to be fetched in the same request. This is the most efficient approach for updating the cart icon UI after add-to-cart:
+
+```javascript
+fetch('/cart/add.js', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    items: [{ id: variantId, quantity: 1 }],
+    sections: 'cart-icon-bubble,cart-drawer,cart-notification'
+  })
+})
+.then(res => res.json())
+.then(data => {
+  // data.sections contains updated HTML for each requested section
+  if (data.sections) {
+    Object.entries(data.sections).forEach(([id, html]) => {
+      const existing = document.querySelector(`#shopify-section-${id}`);
+      if (existing && html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        existing.replaceWith(temp.firstElementChild);
+      }
+    });
+  }
+});
+```
+
+This provides immediate visual feedback without an additional network request. Common section IDs in Dawn theme:
+- `cart-icon-bubble` — Cart icon with item count bubble in header
+- `cart-drawer` — Slide-out cart drawer
+- `cart-notification` — "Added to cart" notification popup
+
+**Limitations:**
+- Only works on the actual storefront (requires Shopify's `/cart/add.js` endpoint)
+- Cannot work in preview/development environments without a real Shopify cart
+
+**Gotchas:**
+- Variant ID must be numeric (not GID) for AJAX API
+- Product data from search may have GID format — requires extraction
+- CORS: The `/api/cart-confirmed` endpoint must handle preflight requests
+- Rate limiting: Shopify's AJAX API has undocumented rate limits
+
+**Code Smells / Future Considerations:**
+- ⚠️ **No variant selection UI**: If product has multiple variants, we pick the first one. Should add variant picker for products with options.
+- ⚠️ **Confirmation is fire-and-forget**: If the server notification fails, user still sees success but conversation history is incomplete.
+
+---
+
+### Implementation 2: Storefront API 
+
+We could of course use the UI to inject an 'add to cart' message to the chat rather than build a completely different handler to handle UI add-to-carts, HOWEVER, part of this project is to play with the tradeoffs and interactions between agentic and classic UIs. So for the purpose of experimentation I built this implementation as its own thing.
+
+Uses Shopify's Storefront GraphQL API from the server for cart operations.
+
+**Files:**
+- `extensions/chat-bubble/assets/chat.js` — Cart module (server mode)
+- `app/routes/api.cart-add.jsx` — Server endpoint
+- `app/services/cart.server.js` — Storefront API functions
+- `extensions/chat-bubble/blocks/chat-interface.liquid` — Cart ID exposure
+
+**Data Flow:**
+```
+Page loads
+    ↓
+Liquid template exposes cart ID to window.shopCartId
+    ↓
+User clicks "Add to Cart"
+    ↓
+JavaScript POSTs to /api/cart-add
+    ├── variantId (GID format)
+    ├── productTitle
+    ├── quantity
+    └── cartId (from window.shopCartId or null)
+    ↓
+Server executes Storefront API mutation
+    ├── If cartId exists: cartLinesAdd mutation
+    └── If no cartId: cartCreate mutation
+    ↓
+Server returns:
+    ├── success: true/false
+    ├── message: confirmation text
+    └── cart: { id, totalQuantity, checkoutUrl, totalAmount }
+    ↓
+Client updates:
+    ├── Stores new cart ID (if created)
+    ├── Updates theme cart count badge
+    └── Displays confirmation in chat
+```
+
+**Shared Cart Data Flow (Storefront API - Agent First, No Existing Cart):**
+```
+User asks agent to add item
+    ↓
+chat.js reads `cart` cookie
+    ↓
+Cookie value: null (no existing cart)
+    ↓
+Server calls cartCreate mutation via Storefront API
+    ↓
+Server sets `cart` cookie in HTTP response (Set-Cookie header)
+    ↓
+Browser stores cookie
+    ↓
+Theme reads cookie on next page load
+    ↓
+Theme cart drawer shows agent's items
+```
+
+**Shared Cart Data Flow (Storefront API - Agent Adds to Existing Cart):**
+```
+User browses theme, adds items via theme UI
+    ↓
+Theme sets `cart` cookie (via AJAX API)
+    ↓
+User asks agent to add more items
+    ↓
+chat.js reads `cart` cookie
+    ↓
+Cookie value: existing GID (e.g., "gid://shopify/Cart/Z2Nw...")
+    ↓
+Server calls cartLinesAdd mutation with existing cart ID
+    ↓
+No cookie change needed (same cart ID)
+    ↓
+Theme cart drawer shows all items (theme + agent additions)
+```
+
+**Cart Icon UI Refresh (Section Rendering API):**
+
+Since the Storefront API is separate from Shopify's AJAX Cart API, bundled section rendering is not available. Instead, the Section Rendering API is called separately after cart updates to refresh the theme's cart UI:
+
+```javascript
+// After Storefront API cart update completes:
+async function refreshCartSections() {
+  const sectionIds = 'cart-icon-bubble,cart-drawer,cart-notification';
+  const root = window.Shopify?.routes?.root || '/';
+
+  const response = await fetch(`${root}?sections=${sectionIds}`);
+  if (!response.ok) return;
+
+  const sections = await response.json();
+  Object.entries(sections).forEach(([id, html]) => {
+    if (html) {
+      const existing = document.querySelector(`#shopify-section-${id}`);
+      if (existing) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        existing.replaceWith(temp.firstElementChild);
+      }
+    }
+  });
+}
+```
+
+This adds one additional network request but ensures the theme's cart UI is fully updated. The implementation includes graceful fallback to text-only updates for themes without standard section IDs.
+
+**Limitations:**
+- See [Shared Cart Limitations](#shared-cart-limitations) for common constraints
+
+**Gotchas:**
+- **Cart expiration**: Storefront API carts expire after 10 days of inactivity
+- **Currency**: Cart is created in shop's default currency; multi-currency requires additional handling
+
+**Code Smells / Future Considerations:**
+- ⚠️ **No cart persistence across conversations**: Each conversation may create a new cart. Should consider tying cart to customer session.
+- ⚠️ **Shop domain resolution**: Currently trusts headers — see security considerations above
+- 💡 Add support for cart attributes (e.g., "gift wrap", custom notes)
+- 💡 Consider using Storefront API's `cartBuyerIdentityUpdate` for logged-in customers
+
+---
+
+### Implementation 3: Natural Language Tool (`add_to_cart`)
+
+Claude-callable tool that enables conversational cart additions.
+
+**Files:**
+- `app/tools/local-tool-definitions.js` — Tool definition and handler
+- `app/services/cart.server.js` — `addToCart()` function
+
+**Data Flow:**
+```
+User says: "Add the red snowboard to my cart"
+    ↓
+Claude recognizes purchase intent
+    ↓
+Claude calls add_to_cart tool
+    ├── product_id: from previous search_products_custom results
+    ├── variant_id: (optional) if user specified variant
+    └── quantity: parsed from user message (default 1)
+    ↓
+Tool handler executes:
+    ↓
+Look up product in local Prisma database
+    ├── Get product title, price
+    └── If no variant_id: get first available variant
+    ↓
+Call Storefront MCP endpoint
+    ├── POST to {shopDomain}/api/mcp
+    ├── JSON-RPC: tools/call with "create_cart"
+    └── Returns cart with checkout URL
+    ↓
+Return structured result to Claude:
+    {
+      success: true,
+      message: "Added 1 x Product to cart",
+      product: { title, variant, quantity, unitPrice },
+      cart: { id, checkoutUrl, totalQuantity }
+    }
+    ↓
+Claude synthesizes friendly response with checkout link
+```
+
+**Shared Cart Data Flow (Natural Language Tool):**
+
+The Natural Language Tool uses `cart.server.js` under the hood, so the shared cart flows are identical to the Storefront API implementation above.
+
+**Agent First (No Existing Cart):**
+```
+User says: "Add the red snowboard to my cart"
+    ↓
+Claude calls add_to_cart tool
+    ↓
+Tool handler reads cart cookie from conversation context
+    ↓
+No existing cart → cartCreate mutation
+    ↓
+Response includes Set-Cookie header with new cart GID
+    ↓
+Subsequent requests use this cart ID
+    ↓
+Theme sees agent-created cart
+```
+
+**Agent Adds to Existing Cart:**
+```
+User has items in theme cart (cart cookie exists)
+    ↓
+User says: "Also add matching boots"
+    ↓
+Claude calls add_to_cart tool
+    ↓
+Tool handler reads existing cart ID from cookie
+    ↓
+cartLinesAdd mutation to existing cart
+    ↓
+Theme cart drawer shows all items
+```
+
+**Cart Icon UI Refresh (Section Rendering API):**
+
+The Natural Language Tool uses the Storefront API under the hood, so bundled section rendering is not available. When the agent adds items to the cart, the server sends a `cart_updated` SSE event to the client, which triggers the Section Rendering API refresh:
+
+```javascript
+// In SSE event handler for 'cart_updated':
+if (data.type === 'cart_updated' && data.cart?.id) {
+  // Update cart cookie if this was a new cart (agent-first flow)
+  if (!localCartId) {
+    setCartCookie(data.cart.id);
+    localCartId = data.cart.id;
+  }
+  // Refresh cart UI using Section Rendering API
+  await CartCookie.refreshCartCount();
+}
+```
+
+The `refreshCartCount()` function:
+1. Fetches `/cart.js` to get cart item count
+2. Calls Section Rendering API (`?sections=cart-icon-bubble,cart-drawer,cart-notification`)
+3. Replaces section HTML in the DOM
+4. Falls back to text-only update if sections don't exist
+5. Dispatches `cart:updated` custom event for theme integrations
+
+This ensures the theme's cart icon updates correctly after conversational add-to-cart, providing visual feedback that the agent's action succeeded.
+
+**Limitations:**
+- **Requires prior search**: Product must exist in search results or local database
+- **No customer context**: Cart is anonymous; cannot apply customer-specific pricing
+
+**Gotchas:**
+- **Tool must be enabled**: Set `enableLocalTools: true` in `app/services/config.server.js`
+- **Product sync required**: Products must be synced to local database first
+- **Variant ambiguity**: If product has multiple variants and user doesn't specify, picks first available — may not match user intent
+- **MCP dependency**: Uses storefront MCP which must be available and configured
+
+**Code Smells / Future Considerations:**
+- ⚠️ **No cart accumulation**: Saying "add X" then "add Y" creates two separate carts instead of adding to same cart. Should implement cart ID persistence in conversation context.
+- ⚠️ **Variant selection UX**: When product has variants, Claude should ask user which variant before adding. Could chain with a `get_product_variants` tool.
+- ⚠️ **Price confirmation**: Should confirm price with user before adding, especially for high-value items.
+- 💡 Add `remove_from_cart` and `update_cart_quantity` tools for complete cart management
+- 💡 Add `view_cart` tool so Claude can reference current cart contents
+- 💡 Consider storing cart ID in `Conversation` model for persistence
+
+---
+
+### Choosing an Implementation
+
+| Criteria | AJAX API | Storefront API | Natural Language |
+|----------|----------|----------------|------------------|
+| **Works offline/preview** | ❌ No | ✅ Yes | ✅ Yes |
+| **Uses page's cart** | ✅ Yes | ⚠️ Partial | ❌ No |
+| **Requires env vars** | ❌ No | ✅ Token | ✅ Token |
+| **User experience** | Instant | Fast | Conversational |
+| **Best for** | Standard stores | Custom storefronts | AI-first experience |
+
+**Recommended approach**: Use AJAX API as default for instant feedback, with natural language tool as enhancement for conversational flow. Storefront API is useful when you need server-side control or are building a headless experience.
 
 ## Deployment Considerations
 

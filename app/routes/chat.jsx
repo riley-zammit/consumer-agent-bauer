@@ -79,6 +79,9 @@ async function handleChatRequest(request) {
     // Generate or use existing conversation ID
     const conversationId = body.conversation_id || Date.now().toString();
     const promptType = body.prompt_type || AppConfig.api.defaultPromptType;
+    // Extract cart ID from request body for shared cart functionality
+    // null is valid - means no cart exists yet (agent-first flow)
+    const cartId = body.cart_id || null;
 
     // Create a stream for the response
     const responseStream = createSseStream(async (stream) => {
@@ -87,6 +90,7 @@ async function handleChatRequest(request) {
         userMessage,
         conversationId,
         promptType,
+        cartId,
         stream
       });
     });
@@ -110,6 +114,7 @@ async function handleChatRequest(request) {
  * @param {string} params.userMessage - The user's message
  * @param {string} params.conversationId - The conversation ID
  * @param {string} params.promptType - The prompt type
+ * @param {string|null} params.cartId - The cart ID from browser cookie (null if no cart exists)
  * @param {Object} params.stream - Stream manager for sending responses
  */
 async function handleChatSession({
@@ -117,6 +122,7 @@ async function handleChatSession({
   userMessage,
   conversationId,
   promptType,
+  cartId,
   stream
 }) {
   // Initialize services
@@ -133,6 +139,7 @@ async function handleChatSession({
     conversationId,
     shopId,
     mcpApiUrl,
+    { cartId }  // Pass cart ID for shared cart functionality
   );
 
 
@@ -250,6 +257,22 @@ async function handleChatSession({
                 productsToDisplay,
                 conversationId
               );
+
+              // If add_to_cart succeeded, emit cart_updated event for client-side cart sync
+              if (toolName === 'add_to_cart' && toolUseResponse.content?.[0]?.text) {
+                try {
+                  const cartData = JSON.parse(toolUseResponse.content[0].text);
+                  if (cartData.success && cartData.cart) {
+                    stream.sendMessage({
+                      type: 'cart_updated',
+                      cart: cartData.cart,
+                      cartCreated: cartData.cartCreated
+                    });
+                  }
+                } catch (e) {
+                  console.warn('Could not parse add_to_cart response for cart_updated event:', e);
+                }
+              }
             }
 
             // Signal new message to client

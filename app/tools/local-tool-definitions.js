@@ -14,6 +14,7 @@ import { searchProductsCustom } from "../services/search.server";
 import { initiateReturn } from "./initiate-return";
 import { completeReturn } from "./complete-return";
 import prisma from "../db.server";
+import { addToCart } from "../services/cart.server";
 
 /**
  * Standard-format local tool definitions.
@@ -189,6 +190,51 @@ TIPS:
         },
       },
       required: ["product_ids"],
+    },
+  },
+  {
+    name: "add_to_cart",
+    description: `Add a product to the customer's shopping cart.
+
+WHEN TO USE:
+- Customer explicitly says they want to add something to cart
+- Customer says "I'll take it", "add this", "buy this" after viewing products
+- Customer specifies quantity like "add 2 of the blue ones"
+- Customer clicks "Add to Cart" button on a product card
+
+WHEN NOT TO USE:
+- Customer is just browsing or asking questions about products
+- Customer hasn't confirmed they want to add to cart
+- Customer is asking about pricing without intent to purchase
+
+REQUIRES:
+- Product must have been found via search_products_custom first
+- Use the product_id from search results (the product_id field)
+- If customer wants a specific variant, use variant_id if available
+
+OUTPUT: Returns confirmation with product name, quantity, total price, and a checkout URL the customer can use to complete their purchase.
+
+IMPORTANT:
+- Always confirm what was added and provide the checkout link
+- If the product has multiple variants and customer didn't specify, the default variant is used
+- Each call creates a new cart - for adding multiple items, call once per product`,
+    input_schema: {
+      type: "object",
+      properties: {
+        product_id: {
+          type: "string",
+          description: "Product GID from search results (e.g., 'gid://shopify/Product/123'). This is the product_id field returned by search_products_custom.",
+        },
+        variant_id: {
+          type: "string",
+          description: "Optional variant GID if the customer requested a specific variant (e.g., 'gid://shopify/ProductVariant/456'). If not provided, the first available variant will be used.",
+        },
+        quantity: {
+          type: "number",
+          description: "Quantity to add. Defaults to 1 if not specified.",
+        },
+      },
+      required: ["product_id"],
     },
   },
 ];
@@ -398,6 +444,37 @@ export async function executeLocalTool(toolName, toolArgs, context = {}) {
         });
 
         return asTextContent({ collections });
+      }
+
+      case "add_to_cart": {
+        const productId = toolArgs?.product_id;
+        if (!productId) {
+          return {
+            error: {
+              type: "invalid_input",
+              data: "product_id is required. Use the product_id from search_products_custom results.",
+            },
+          };
+        }
+
+        const result = await addToCart({
+          shopDomain: context.shopDomain,
+          productId,
+          variantId: toolArgs?.variant_id,
+          quantity: toolArgs?.quantity || 1,
+          cartId: context.cartId,  // Pass cart ID for shared cart functionality
+        });
+
+        if (result.error) {
+          return {
+            error: {
+              type: "cart_error",
+              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
+            },
+          };
+        }
+
+        return asTextContent(result);
       }
 
       default:
