@@ -14,7 +14,7 @@ import { searchProductsCustom } from "../services/search.server";
 import { initiateReturn } from "./initiate-return";
 import { completeReturn } from "./complete-return";
 import prisma from "../db.server";
-import { addToCart } from "../services/cart.server";
+import { addToCart, getCart } from "../services/cart.server";
 
 /**
  * Standard-format local tool definitions.
@@ -22,8 +22,8 @@ import { addToCart } from "../services/cart.server";
  */
 export const localTools = [
   {
-    name: "search_products_custom",
-    description: `Search for products in the store's catalog using semantic search powered by a local vector index.
+    name: "search_products_preferred",
+    description: `Search for products in the store's catalog using semantic search powered by a local vector index. This is the preferred method to use to search the catalog.
 
 WHEN TO USE:
 - Customer asks to find, search for, or browse products (e.g., "show me winter jackets", "do you have red sneakers?")
@@ -57,119 +57,22 @@ TIPS:
     },
   },
   {
-    name: "initiate_return_custom",
-    description: `Start a return request for items from a customer's order. This is the FIRST step in the two-step return process.
-
-WHEN TO USE:
-- Customer explicitly says they want to return an item or order
-- Customer is unhappy with a product and wants to send it back
-- Customer received wrong/damaged items and needs to return them
-- Customer asks "how do I return this?" after you've confirmed they want to proceed
-
-WHEN NOT TO USE:
-- Customer is just asking about return POLICY - answer from knowledge base instead
-- Customer hasn't decided if they want to return yet - ask clarifying questions first
-- You don't have the order_id yet - first use get_order_status to find the order
-- Return was already initiated - use complete_return_custom to finalize it
-
-WORKFLOW:
-1. Get the order details first (use order status tools to find the order_id)
-2. Call initiate_return_custom with the order_id and reason
-3. Response includes a return_id and next steps
-4. Customer must confirm before you call complete_return_custom
-
-OUTPUT: Returns return_id, eligible items, return instructions, and estimated refund amount. The return is NOT finalized until complete_return_custom is called.
-
-IMPORTANT: Always confirm with the customer which specific items they want to return and why before calling this tool.`,
-    input_schema: {
-      type: "object",
-      properties: {
-        order_id: {
-          type: "string",
-          description: "The Shopify order ID. Can be a GID (gid://shopify/Order/123456) or order number (#1001). Get this from order status tools first.",
-        },
-        reason: {
-          type: "string",
-          description: "Customer's reason for return. Be specific: 'Size too small', 'Wrong color received', 'Item damaged on arrival', 'Changed mind', etc.",
-        },
-        items: {
-          type: "array",
-          description: "Specific line items to return. If omitted, return applies to entire order. Include this when customer only wants to return some items.",
-          items: {
-            type: "object",
-            properties: {
-              line_item_id: {
-                type: "string",
-                description: "The line item ID from the order",
-              },
-              quantity: {
-                type: "number",
-                description: "How many of this item to return (must be <= ordered quantity)",
-              },
-            },
-            required: ["line_item_id", "quantity"],
-          },
-        },
-      },
-      required: ["order_id"],
-    },
-  },
-  {
-    name: "complete_return_custom",
-    description: `Finalize a return request that was previously initiated. This is the SECOND and FINAL step in the return process.
-
-WHEN TO USE:
-- You have already called initiate_return_custom and received a return_id
-- Customer has explicitly confirmed they want to proceed with the return
-- You have communicated the return details and customer agrees
-
-WHEN NOT TO USE:
-- No return has been initiated yet - call initiate_return_custom first
-- Customer hasn't confirmed - ask for explicit confirmation before finalizing
-- Customer wants to cancel the return - do NOT call this, inform them the return was not processed
-- You're unsure if customer wants to proceed - ask for clarification
-
-WORKFLOW:
-1. After initiate_return_custom, explain the return details to customer
-2. Ask customer to confirm: "Should I finalize this return?"
-3. Only call complete_return_custom after customer says yes/confirms
-4. Provide the confirmation details to customer
-
-OUTPUT: Returns confirmation number, refund details (amount and method), return shipping instructions (if applicable), and expected timeline for refund processing.
-
-CRITICAL: The confirm parameter MUST be true. This is a safeguard - never set confirm=true unless the customer has explicitly agreed to finalize the return.`,
-    input_schema: {
-      type: "object",
-      properties: {
-        return_id: {
-          type: "string",
-          description: "The return_id received from initiate_return_custom. This links to the pending return request.",
-        },
-        confirm: {
-          type: "boolean",
-          description: "Must be true to finalize. This is a safety check - only set to true after customer explicitly confirms they want to complete the return.",
-        },
-      },
-      required: ["return_id", "confirm"],
-    },
-  },
-  {
     name: "search_collections",
-    description: `Find collections that contain specific products. Use this tool IMMEDIATELY after calling search_products_custom to show customers relevant product categories and help them browse related items.
+    description: `Find collections that contain specific products. Use this tool IMMEDIATELY after calling search_products_preferred to show customers relevant product categories and help them browse related items.
 
 WHEN TO USE:
-- ALWAYS call this tool after search_products_custom returns results
+- ALWAYS call this tool after search_products_preferred returns results
 - When you want to show the customer what categories/collections the found products belong to
 - When customer might want to browse more products in the same category
 - To provide context about where products are organized in the store
 
 WHEN NOT TO USE:
-- Before calling search_products_custom (you need product IDs first)
-- When search_products_custom returned no results
+- Before calling search_products_preferred (you need product IDs first)
+- When search_products_preferred returned no results
 - When customer explicitly doesn't want category suggestions
 
 WORKFLOW:
-1. Call search_products_custom first to find products
+1. Call search_products_preferred first to find products
 2. Extract the product IDs from the search results
 3. Call search_collections with those product IDs
 4. Present collections to customer as browsing options (e.g., "These products are from our Snowboards and Sale collections")
@@ -186,15 +89,15 @@ TIPS:
         product_ids: {
           type: "array",
           items: { type: "string" },
-          description: "Array of Shopify product GIDs (e.g., ['gid://shopify/Product/123', 'gid://shopify/Product/456']). Get these from search_products_custom results.",
+          description: "Array of Shopify product GIDs (e.g., ['gid://shopify/Product/123', 'gid://shopify/Product/456']). Get these from search_products_preferred results.",
         },
       },
       required: ["product_ids"],
     },
   },
   {
-    name: "add_to_cart",
-    description: `Add a product to the customer's shopping cart.
+    name: "add_to_cart_preferred",
+    description: `Add a product to the customer's shopping cart. This is the preferred tool to use to add-to-cart.
 
 WHEN TO USE:
 - Customer explicitly says they want to add something to cart
@@ -208,7 +111,7 @@ WHEN NOT TO USE:
 - Customer is asking about pricing without intent to purchase
 
 REQUIRES:
-- Product must have been found via search_products_custom first
+- Product must have been found via search_products_preferred first
 - Use the product_id from search results (the product_id field)
 - If customer wants a specific variant, use variant_id if available
 
@@ -223,7 +126,7 @@ IMPORTANT:
       properties: {
         product_id: {
           type: "string",
-          description: "Product GID from search results (e.g., 'gid://shopify/Product/123'). This is the product_id field returned by search_products_custom.",
+          description: "Product GID from search results (e.g., 'gid://shopify/Product/123'). This is the product_id field returned by search_products_preferred.",
         },
         variant_id: {
           type: "string",
@@ -235,6 +138,45 @@ IMPORTANT:
         },
       },
       required: ["product_id"],
+    },
+  },
+  {
+    name: "get_cart_preferred",
+    description: `Retrieve the customer's current shopping cart contents, totals, and checkout URL. This is the preferred tool for viewing cart details.
+
+WHEN TO USE:
+- Customer asks "what's in my cart?", "show me my cart", "view cart"
+- Customer wants to know the cart total, item count, or subtotal
+- Customer asks "how much is my order?" or "what's my total?"
+- Before checkout - to summarize what the customer is about to purchase
+- Customer asks to review items before proceeding
+- Customer wants to see if a discount code is applied
+- When you need to confirm cart contents after adding items
+
+WHEN NOT TO USE:
+- Customer wants to add items to cart - use add_to_cart_preferred instead
+- Customer is searching for products - use search_products_preferred instead
+- Customer is asking about past orders - use order status tools instead
+- Customer hasn't added anything to cart yet (empty cart will be indicated)
+
+OUTPUT: Returns detailed cart information including:
+- All items with product titles, variants, quantities, and prices
+- Individual item pricing (unit price and line total)
+- Cart subtotal and total
+- Applied discount codes
+- Checkout URL for completing the purchase
+- Whether items are still in stock (availableForSale)
+- Analyze the cart and suggest items they might want to add based on what's already in the cart. DO NOT run search products yet, just make a general recommendation.
+
+TIPS:
+- If cart is empty or expired, suggest products or help the customer browse
+- Always mention the checkout URL when the customer seems ready to purchase
+- Compare availableForSale status if customer is concerned about stock
+- Provide a clear summary: item count, itemized list, and total`,
+    input_schema: {
+      type: "object",
+      properties: {},
+      required: [],
     },
   },
 ];
@@ -357,7 +299,7 @@ async function searchCollectionsByProductIds({ shopDomain, productIds }) {
 export async function executeLocalTool(toolName, toolArgs, context = {}) {
   try {
     switch (toolName) {
-      case "search_products_custom": {
+      case "search_products_preferred": {
         const products = await searchProductsCustom({
           shopDomain: context.shopDomain,
           query: toolArgs?.query,
@@ -446,13 +388,13 @@ export async function executeLocalTool(toolName, toolArgs, context = {}) {
         return asTextContent({ collections });
       }
 
-      case "add_to_cart": {
+      case "add_to_cart_preferred": {
         const productId = toolArgs?.product_id;
         if (!productId) {
           return {
             error: {
               type: "invalid_input",
-              data: "product_id is required. Use the product_id from search_products_custom results.",
+              data: "product_id is required. Use the product_id from search_products_preferred results.",
             },
           };
         }
@@ -463,6 +405,24 @@ export async function executeLocalTool(toolName, toolArgs, context = {}) {
           variantId: toolArgs?.variant_id,
           quantity: toolArgs?.quantity || 1,
           cartId: context.cartId,  // Pass cart ID for shared cart functionality
+        });
+
+        if (result.error) {
+          return {
+            error: {
+              type: "cart_error",
+              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
+            },
+          };
+        }
+
+        return asTextContent(result);
+      }
+
+      case "get_cart_preferred": {
+        const result = await getCart({
+          shopDomain: context.shopDomain,
+          cartId: context.cartId,  // Cart ID from browser's cart cookie
         });
 
         if (result.error) {

@@ -258,8 +258,8 @@ async function handleChatSession({
                 conversationId
               );
 
-              // If add_to_cart succeeded, emit cart_updated event for client-side cart sync
-              if (toolName === 'add_to_cart' && toolUseResponse.content?.[0]?.text) {
+              // If add_to_cart_preferred succeeded, emit cart_updated event for client-side cart sync
+              if (toolName === 'add_to_cart_preferred' && toolUseResponse.content?.[0]?.text) {
                 try {
                   const cartData = JSON.parse(toolUseResponse.content[0].text);
                   if (cartData.success && cartData.cart) {
@@ -270,7 +270,7 @@ async function handleChatSession({
                     });
                   }
                 } catch (e) {
-                  console.warn('Could not parse add_to_cart response for cart_updated event:', e);
+                  console.warn('Could not parse add_to_cart_preferred response for cart_updated event:', e);
                 }
               }
             }

@@ -186,7 +186,7 @@ function shapeProductResult(doc) {
 }
 
 /**
- * Local product search exposed to the chat tool `search_products_custom`.
+ * Local product search exposed to the chat tool `search_products_preferred`.
  * Returns product objects shaped like `search_shop_catalog` so the existing product cards render unchanged.
  */
 export async function searchProductsCustom({ shopDomain, query, limit = 10 }) {

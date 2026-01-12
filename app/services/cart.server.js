@@ -9,6 +9,101 @@ import prisma from "../db.server";
 const STOREFRONT_API_VERSION = '2025-01';
 
 /**
+ * GraphQL query to fetch cart details
+ */
+const CART_QUERY = `
+query getCart($cartId: ID!) {
+  cart(id: $cartId) {
+    id
+    createdAt
+    updatedAt
+    totalQuantity
+    checkoutUrl
+    note
+    buyerIdentity {
+      email
+      phone
+      countryCode
+    }
+    cost {
+      totalAmount {
+        amount
+        currencyCode
+      }
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+      totalTaxAmount {
+        amount
+        currencyCode
+      }
+      totalDutyAmount {
+        amount
+        currencyCode
+      }
+    }
+    lines(first: 50) {
+      edges {
+        node {
+          id
+          quantity
+          cost {
+            amountPerQuantity {
+              amount
+              currencyCode
+            }
+            totalAmount {
+              amount
+              currencyCode
+            }
+            compareAtAmountPerQuantity {
+              amount
+              currencyCode
+            }
+          }
+          merchandise {
+            ... on ProductVariant {
+              id
+              title
+              availableForSale
+              quantityAvailable
+              image {
+                url
+                altText
+              }
+              selectedOptions {
+                name
+                value
+              }
+              product {
+                id
+                title
+                handle
+                featuredImage {
+                  url
+                  altText
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    discountCodes {
+      code
+      applicable
+    }
+    discountAllocations {
+      discountedAmount {
+        amount
+        currencyCode
+      }
+    }
+  }
+}`;
+
+/**
  * GraphQL mutation to add lines to an existing cart
  */
 const CART_LINES_ADD_MUTATION = `
@@ -83,21 +178,25 @@ mutation cartCreate($input: CartInput!) {
  * @param {string} options.storefrontAccessToken - The Storefront API access token
  * @param {string} options.query - The GraphQL query/mutation
  * @param {Object} options.variables - The GraphQL variables
+ * @param {string} [options.buyerIp] - The buyer's IP address (optional, defaults to dummy IP)
  * @returns {Promise<Object>} The GraphQL response data
  */
-async function storefrontApiRequest({ shopDomain, storefrontAccessToken, query, variables }) {
+async function storefrontApiRequest({ shopDomain, storefrontAccessToken, query, variables, buyerIp }) {
   // Normalize shop domain - remove protocol if present
   const normalizedDomain = shopDomain
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '');
 
   const endpoint = `https://${normalizedDomain}/api/${STOREFRONT_API_VERSION}/graphql.json`;
-
+    console.log("making sf api reqest:", query, variables)
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Shopify-Storefront-Access-Token': storefrontAccessToken,
+      // Include buyer IP for proper rate limiting and bot protection
+      // In production, this should be the actual buyer's IP address
+      'Shopify-Storefront-Buyer-IP': '127.0.0.1',
     },
     body: JSON.stringify({ query, variables }),
   });
@@ -114,6 +213,39 @@ async function storefrontApiRequest({ shopDomain, storefrontAccessToken, query, 
   }
 
   return json.data;
+}
+
+/**
+ * Normalize cart ID to the correct Storefront API format
+ * Ensures cart ID is in format: gid://shopify/Cart/{id}
+ *
+ * @param {string} cartId - The cart ID (may be in various formats)
+ * @returns {string} Normalized cart GID
+ */
+function normalizeCartId(cartId) {
+  if (!cartId) return null;
+  
+  // If already in correct format, return as-is
+  if (cartId.startsWith('gid://shopify/Cart/')) {
+    return cartId;
+  }
+  
+  // Extract the ID part (handle various formats)
+  let id = cartId;
+  
+  // If it's a GID but wrong format, extract the ID
+  if (cartId.includes('/')) {
+    const parts = cartId.split('/');
+    id = parts[parts.length - 1];
+  }
+  
+  // Ensure it's a valid ID (not empty)
+  if (!id || id.trim() === '') {
+    return null;
+  }
+  
+  // Return in correct format
+  return `gid://shopify/Cart/${id}`;
 }
 
 /**
@@ -134,8 +266,15 @@ export async function addToCartStorefront({
   variantId,
   quantity = 1
 }) {
+  // Normalize cart ID to ensure correct format for Storefront API
+  const normalizedCartId = normalizeCartId(cartId);
+  
+  if (!normalizedCartId) {
+    throw new Error('Invalid cart ID format');
+  }
+  
   const variables = {
-    cartId,
+    cartId: normalizedCartId,
     lines: [
       {
         merchandiseId: variantId,
@@ -255,6 +394,192 @@ export async function addToCartOrCreate({
     variantId,
     quantity,
   });
+}
+
+/**
+ * Fetch cart details from Storefront API
+ *
+ * @param {Object} options - Get cart options
+ * @param {string} options.shopDomain - The shop's domain
+ * @param {string} options.storefrontAccessToken - Storefront API access token
+ * @param {string} options.cartId - The cart's GID (e.g., "gid://shopify/Cart/...")
+ * @returns {Promise<Object>} The cart details or error
+ */
+export async function getCartStorefront({
+  shopDomain,
+  storefrontAccessToken,
+  cartId,
+}) {
+  // Normalize cart ID to ensure correct format for Storefront API
+  const normalizedCartId = normalizeCartId(cartId);
+
+  if (!normalizedCartId) {
+    return {
+      success: false,
+      error: 'Invalid cart ID format',
+      cart: null,
+    };
+  }
+
+  try {
+    const data = await storefrontApiRequest({
+      shopDomain,
+      storefrontAccessToken,
+      query: CART_QUERY,
+      variables: { cartId: normalizedCartId },
+    });
+
+    const cart = data.cart;
+
+    if (!cart) {
+      return {
+        success: false,
+        error: 'Cart not found or has expired',
+        cart: null,
+      };
+    }
+
+    return {
+      success: true,
+      error: null,
+      cart,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      cart: null,
+    };
+  }
+}
+
+/**
+ * Get cart details using Storefront API
+ * This is the main function called by the get_cart_preferred local tool
+ *
+ * @param {Object} params
+ * @param {string} params.shopDomain - The shop domain
+ * @param {string} params.cartId - The cart GID (from browser's cart cookie)
+ * @returns {Promise<Object>} Result with cart details or error
+ */
+export async function getCart({ shopDomain, cartId }) {
+  try {
+    const shop = normalizeShopDomain(shopDomain);
+    if (!shop) {
+      return { error: "Invalid shop domain" };
+    }
+
+    if (!cartId) {
+      return {
+        empty: true,
+        message: "No cart exists yet. The customer hasn't added anything to their cart.",
+        cart: null,
+      };
+    }
+
+    // Get Storefront API access token from the database session
+    const session = await prisma.session.findFirst({
+      where: { shop },
+      select: { storefrontToken: true },
+    });
+
+    if (!session || !session.storefrontToken) {
+      return { error: "Storefront API access token not found in session. Please run 'node scripts/generate-storefront-token.js' to generate a token." };
+    }
+
+    const storefrontAccessToken = session.storefrontToken;
+
+    const result = await getCartStorefront({
+      shopDomain: shop,
+      storefrontAccessToken,
+      cartId,
+    });
+
+    if (!result.success) {
+      // Cart might have expired or been deleted
+      if (result.error?.includes('not found') || result.error?.includes('expired')) {
+        return {
+          empty: true,
+          message: "The cart has expired or been deleted. The customer's cart is now empty.",
+          cart: null,
+        };
+      }
+      return { error: result.error };
+    }
+
+    const cart = result.cart;
+
+    // Transform cart lines for easier consumption
+    const items = cart.lines.edges.map(edge => {
+      const line = edge.node;
+      const variant = line.merchandise;
+      const product = variant.product;
+
+      return {
+        lineId: line.id,
+        quantity: line.quantity,
+        product: {
+          id: product.id,
+          title: product.title,
+          handle: product.handle,
+          image: product.featuredImage?.url || variant.image?.url || null,
+        },
+        variant: {
+          id: variant.id,
+          title: variant.title !== "Default Title" ? variant.title : null,
+          availableForSale: variant.availableForSale,
+          quantityAvailable: variant.quantityAvailable,
+          selectedOptions: variant.selectedOptions,
+        },
+        pricing: {
+          unitPrice: formatMoney(line.cost.amountPerQuantity),
+          totalPrice: formatMoney(line.cost.totalAmount),
+          compareAtPrice: line.cost.compareAtAmountPerQuantity ?
+            formatMoney(line.cost.compareAtAmountPerQuantity) : null,
+        },
+      };
+    });
+
+    // Build the response
+    return {
+      success: true,
+      cart: {
+        id: cart.id,
+        checkoutUrl: cart.checkoutUrl,
+        createdAt: cart.createdAt,
+        updatedAt: cart.updatedAt,
+        note: cart.note,
+        totalQuantity: cart.totalQuantity,
+        itemCount: items.length,
+        items,
+        cost: {
+          subtotal: formatMoney(cart.cost.subtotalAmount),
+          total: formatMoney(cart.cost.totalAmount),
+          tax: cart.cost.totalTaxAmount ? formatMoney(cart.cost.totalTaxAmount) : null,
+          duty: cart.cost.totalDutyAmount ? formatMoney(cart.cost.totalDutyAmount) : null,
+        },
+        discountCodes: cart.discountCodes || [],
+        hasDiscounts: (cart.discountAllocations || []).length > 0,
+        buyerIdentity: cart.buyerIdentity,
+      },
+    };
+  } catch (error) {
+    console.error("Error fetching cart:", error);
+    return {
+      error: `Failed to fetch cart: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Format money object to readable string
+ * @param {Object} money - Money object with amount and currencyCode
+ * @returns {string} Formatted price string
+ */
+function formatMoney(money) {
+  if (!money) return null;
+  const amount = parseFloat(money.amount);
+  return `${money.currencyCode} ${amount.toFixed(2)}`;
 }
 
 /**
@@ -481,7 +806,7 @@ async function getProductDetails(productId) {
 
 /**
  * Add a product to cart using Storefront API
- * This is the main function called by the add_to_cart local tool
+ * This is the main function called by the add_to_cart_preferred local tool
  * Supports shared cart functionality - if cartId is provided, adds to existing cart;
  * otherwise creates a new cart.
  *
@@ -500,11 +825,23 @@ export async function addToCart({ shopDomain, productId, variantId, quantity = 1
       return { error: "Invalid shop domain" };
     }
 
-    // Get Storefront API access token from environment
-    const storefrontAccessToken = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
-    if (!storefrontAccessToken) {
-      return { error: "Storefront API access token not configured. Please set SHOPIFY_STOREFRONT_ACCESS_TOKEN environment variable." };
+    // Get Storefront API access token from the database session
+    const session = await prisma.session.findFirst({
+      where: { shop },
+      select: { storefrontToken: true },
+    });
+
+    if (!session || !session.storefrontToken) {
+      return { error: "Storefront API access token not found in session. Please run 'node scripts/generate-storefront-token.js' to generate a token." };
     }
+
+    const storefrontAccessToken = session.storefrontToken;
+    
+    // Note: If using a delegate token (created via delegateAccessTokenCreate), 
+    // the header should be 'Shopify-Storefront-Private-Token' instead of 
+    // 'X-Shopify-Storefront-Access-Token'. Both token types should include
+    // 'Shopify-Storefront-Buyer-IP' header. Consider storing token type in 
+    // database to handle this automatically.
 
     // Get product details from local database
     const product = await getProductDetails(productId);
@@ -588,12 +925,14 @@ export async function addToCart({ shopDomain, productId, variantId, quantity = 1
 }
 
 export default {
-  // Local tool function (uses MCP)
+  // Local tool functions
   addToCart,
+  getCart,
   // Storefront API functions (for direct API access)
   addToCartStorefront,
   createCartStorefront,
   addToCartOrCreate,
+  getCartStorefront,
   generateStorefrontCartConfirmation,
   // Message formatting utilities
   formatCartConfirmationMessage,

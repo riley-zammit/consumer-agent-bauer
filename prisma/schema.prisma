@@ -30,6 +30,7 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
   products      Product[] // Products belong to a session
+  storefrontToken String? 
 }
 
 model CustomerToken {

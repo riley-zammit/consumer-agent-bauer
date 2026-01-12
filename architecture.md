@@ -459,14 +459,14 @@ Automatically retries original request
 
 Claude operates in an **agentic loop** where it can call multiple tools sequentially within a single conversation turn before generating a final response. This enables powerful workflows where tool descriptions instruct Claude to chain tools together.
 
-**Example**: `search_products_custom` instructs Claude to always call `search_collections` immediately after to enrich results with collection context.
+**Example**: `search_products_preferred` instructs Claude to always call `search_collections` immediately after to enrich results with collection context.
 
 ```
 User: "Show me snowboards"
     ↓
-Claude decides to call search_products_custom
+Claude decides to call search_products_preferred
     ↓
-Server executes tool, streams: { type: "tool_use", tool: "search_products_custom" }
+Server executes tool, streams: { type: "tool_use", tool: "search_products_preferred" }
     ↓
 Tool result returned to Claude (products found)
     ↓
@@ -839,7 +839,7 @@ class MCPClient {
 
 The application supports three different add-to-cart flows, each with distinct trade-offs. All implementations share common utilities in `app/services/cart.server.js` for DRY architecture.
 
-### Implementation 1: AJAX API
+### Implementation 1: AJAX API (Theoretical - don't implement)
 
 Uses Shopify's native AJAX Cart API directly from the browser. Partners are not likely to build this becuase it reuqires the agent to run on a Shopify storefront environment.
 
@@ -1063,7 +1063,7 @@ This adds one additional network request but ensures the theme's cart UI is full
 
 ---
 
-### Implementation 3: Natural Language Tool (`add_to_cart`)
+### Implementation 3: Natural Language Tool (`add_to_cart_preferred`)
 
 Claude-callable tool that enables conversational cart additions.
 
@@ -1077,8 +1077,8 @@ User says: "Add the red snowboard to my cart"
     ↓
 Claude recognizes purchase intent
     ↓
-Claude calls add_to_cart tool
-    ├── product_id: from previous search_products_custom results
+Claude calls add_to_cart_preferred tool
+    ├── product_id: from previous search_products_preferred results
     ├── variant_id: (optional) if user specified variant
     └── quantity: parsed from user message (default 1)
     ↓
@@ -1112,7 +1112,7 @@ The Natural Language Tool uses `cart.server.js` under the hood, so the shared ca
 ```
 User says: "Add the red snowboard to my cart"
     ↓
-Claude calls add_to_cart tool
+Claude calls add_to_cart_preferred tool
     ↓
 Tool handler reads cart cookie from conversation context
     ↓
@@ -1131,7 +1131,7 @@ User has items in theme cart (cart cookie exists)
     ↓
 User says: "Also add matching boots"
     ↓
-Claude calls add_to_cart tool
+Claude calls add_to_cart_preferred tool
     ↓
 Tool handler reads existing cart ID from cookie
     ↓

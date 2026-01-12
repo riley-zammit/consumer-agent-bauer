@@ -102,7 +102,7 @@ export default function SearchConfigRoute() {
         <s-stack gap="base">
           <s-paragraph>
             Configure rule-based boosts for the demo local tool{" "}
-            <s-text>search_products_custom</s-text>. These rules only affect your
+            <s-text>search_products_preferred</s-text>. These rules only affect your
             shop: <s-text>{shop}</s-text>.
           </s-paragraph>
 
