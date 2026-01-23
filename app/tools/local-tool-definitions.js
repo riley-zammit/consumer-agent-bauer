@@ -1,29 +1,72 @@
 /**
- * Local tools provided by the app (not via MCP).
- *
- * Tool definitions MUST match the same shape we send to Claude:
- *   { name, description, input_schema }
- *
- * Tool execution MUST return the same shape as MCP tools:
- *   { content: [{ type: "text", text: "..." }] }
- * or
- *   { error: { type, data } }
- */
-
-import { searchProductsCustom } from "../services/search.server";
-import { initiateReturn } from "./initiate-return";
-import { completeReturn } from "./complete-return";
-import prisma from "../db.server";
-import { addToCart, getCart } from "../services/cart.server";
-
-/**
  * Standard-format local tool definitions.
  * @type {Array<{name: string, description: string, input_schema: any}>}
  */
 export const localTools = [
-  {
-    name: "search_products_preferred",
-    description: `Search for products in the store's catalog using semantic search powered by a local vector index. This is the preferred method to use to search the catalog.
+    {
+        name: "get_most_recent_ticket",
+        description: `Fetch the latest support ticket for the current conversation. Requires customer authentication using the conversation-scoped token.`,
+        input_schema: {
+            type: "object",
+            properties: {},
+            required: [],
+        },
+    },
+    {
+        name: "upsert_ticket",
+        description: `Create or update a support ticket for the current conversation. Requires customer authentication using the conversation-scoped token. Provide ticket_id to update an existing ticket; otherwise a new ticket is created.`,
+        input_schema: {
+            type: "object",
+            properties: {
+                ticket_id: {
+                    type: "string",
+                    description: "Existing ticket id to update. Omit to create a new ticket.",
+                },
+                subject: {
+                    type: "string",
+                    description: "Ticket subject or title. Optional for updates; defaults to 'Customer support request' on create.",
+                },
+                message: {
+                    type: "string",
+                    description: "Latest customer message or note to store on the ticket.",
+                },
+                status: {
+                    type: "string",
+                    description: "Ticket status. Accepted values: open, pending, resolved, closed. Defaults to open.",
+                },
+                metadata: {
+                    type: ["object", "string"],
+                    description: "Optional structured metadata about the ticket (JSON object or string).",
+                },
+            },
+            required: [],
+        },
+    },
+    {
+        name: "get_ticket_by_id",
+        description: `Fetch a specific support ticket by ticket_id for the current conversation. Requires customer authentication using the conversation-scoped token.`,
+        input_schema: {
+            type: "object",
+            properties: {
+                ticket_id: {
+                    type: "string",
+                    description: "Ticket id to retrieve (must belong to this conversation).",
+                },
+            },
+            required: ["ticket_id"],
+        },
+    },
+    // {
+    //     name: "get_store_facts",
+    //     description: "Get information about the store. If there is another tool called search_shop_policies_and_faqs, always call that tool right after this tool."
+    // },
+    // {
+    //     name: "get_recent_support_interactions",
+    //     description: "Get the logged-in customer's most recent support interactions. Trigger customer account authentication if not logged in."
+    // },
+    {
+        name: "search_products_preferred",
+        description: `Search for products in the store's catalog using semantic search powered by a local vector index. This is the preferred method to use to search the catalog.
 
 WHEN TO USE:
 - Customer asks to find, search for, or browse products (e.g., "show me winter jackets", "do you have red sneakers?")
@@ -41,24 +84,24 @@ OUTPUT: Returns an array of matching products with id, title, description, price
 TIPS:
 - Use descriptive natural language queries for best results (e.g., "comfortable running shoes for beginners" rather than just "shoes")
 - Default limit is 10 products; increase for broader searches, decrease for focused recommendations`,
-    input_schema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Natural language search query describing what products to find. Be descriptive - include colors, sizes, use cases, or any attributes the customer mentioned.",
+        input_schema: {
+            type: "object",
+            properties: {
+                query: {
+                    type: "string",
+                    description: "Natural language search query describing what products to find. Be descriptive - include colors, sizes, use cases, or any attributes the customer mentioned.",
+                },
+                limit: {
+                    type: "number",
+                    description: "Maximum number of products to return. Default is 10. Use lower values (3-5) for focused recommendations, higher (15-20) for browsing.",
+                },
+            },
+            required: ["query"],
         },
-        limit: {
-          type: "number",
-          description: "Maximum number of products to return. Default is 10. Use lower values (3-5) for focused recommendations, higher (15-20) for browsing.",
-        },
-      },
-      required: ["query"],
     },
-  },
-  {
-    name: "search_collections",
-    description: `Find collections that contain specific products. Use this tool IMMEDIATELY after calling search_products_preferred to show customers relevant product categories and help them browse related items.
+    {
+        name: "search_collections",
+        description: `Find collections that contain specific products. Use this tool IMMEDIATELY after calling search_products_preferred to show customers relevant product categories and help them browse related items.
 
 WHEN TO USE:
 - ALWAYS call this tool after search_products_preferred returns results
@@ -83,21 +126,21 @@ TIPS:
 - Pass all product IDs from the search results for comprehensive collection matching
 - Collections help customers discover more products they might like
 - Smart collections are auto-curated; manual collections are hand-picked by the merchant`,
-    input_schema: {
-      type: "object",
-      properties: {
-        product_ids: {
-          type: "array",
-          items: { type: "string" },
-          description: "Array of Shopify product GIDs (e.g., ['gid://shopify/Product/123', 'gid://shopify/Product/456']). Get these from search_products_preferred results.",
+        input_schema: {
+            type: "object",
+            properties: {
+                product_ids: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Array of Shopify product GIDs (e.g., ['gid://shopify/Product/123', 'gid://shopify/Product/456']). Get these from search_products_preferred results.",
+                },
+            },
+            required: ["product_ids"],
         },
-      },
-      required: ["product_ids"],
     },
-  },
-  {
-    name: "add_to_cart_preferred",
-    description: `Add a product to the customer's shopping cart. This is the preferred tool to use to add-to-cart.
+    {
+        name: "add_to_cart_preferred",
+        description: `Add a product to the customer's shopping cart. This is the preferred tool to use to add-to-cart.
 
 WHEN TO USE:
 - Customer explicitly says they want to add something to cart
@@ -121,28 +164,28 @@ IMPORTANT:
 - Always confirm what was added and provide the checkout link
 - If the product has multiple variants and customer didn't specify, the default variant is used
 - Each call creates a new cart - for adding multiple items, call once per product`,
-    input_schema: {
-      type: "object",
-      properties: {
-        product_id: {
-          type: "string",
-          description: "Product GID from search results (e.g., 'gid://shopify/Product/123'). This is the product_id field returned by search_products_preferred.",
+        input_schema: {
+            type: "object",
+            properties: {
+                product_id: {
+                    type: "string",
+                    description: "Product GID from search results (e.g., 'gid://shopify/Product/123'). This is the product_id field returned by search_products_preferred.",
+                },
+                variant_id: {
+                    type: "string",
+                    description: "Optional variant GID if the customer requested a specific variant (e.g., 'gid://shopify/ProductVariant/456'). If not provided, the first available variant will be used.",
+                },
+                quantity: {
+                    type: "number",
+                    description: "Quantity to add. Defaults to 1 if not specified.",
+                },
+            },
+            required: ["product_id"],
         },
-        variant_id: {
-          type: "string",
-          description: "Optional variant GID if the customer requested a specific variant (e.g., 'gid://shopify/ProductVariant/456'). If not provided, the first available variant will be used.",
-        },
-        quantity: {
-          type: "number",
-          description: "Quantity to add. Defaults to 1 if not specified.",
-        },
-      },
-      required: ["product_id"],
     },
-  },
-  {
-    name: "get_cart_preferred",
-    description: `Retrieve the customer's current shopping cart contents, totals, and checkout URL. This is the preferred tool for viewing cart details.
+    {
+        name: "get_cart_preferred",
+        description: `Retrieve the customer's current shopping cart contents, totals, and checkout URL. This is the preferred tool for viewing cart details.
 
 WHEN TO USE:
 - Customer asks "what's in my cart?", "show me my cart", "view cart"
@@ -173,286 +216,10 @@ TIPS:
 - Always mention the checkout URL when the customer seems ready to purchase
 - Compare availableForSale status if customer is concerned about stock
 - Provide a clear summary: item count, itemized list, and total`,
-    input_schema: {
-      type: "object",
-      properties: {},
-      required: [],
+        input_schema: {
+            type: "object",
+            properties: {},
+            required: [],
+        },
     },
-  },
 ];
-
-function asTextContent(payload) {
-  return {
-    content: [
-      {
-        type: "text",
-        text: typeof payload === "string" ? payload : JSON.stringify(payload),
-      },
-    ],
-  };
-}
-
-/**
- * Normalize shop domain to hostname format
- */
-function normalizeShopDomain(shopOrUrl) {
-  if (!shopOrUrl) return null;
-  try {
-    if (shopOrUrl.startsWith("http://") || shopOrUrl.startsWith("https://")) {
-      return new URL(shopOrUrl).hostname;
-    }
-  } catch {
-    // ignore
-  }
-  return shopOrUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-}
-
-/**
- * Get the Admin API access token for a shop
- */
-async function getAccessTokenForShop(shopDomain) {
-  const shop = normalizeShopDomain(shopDomain);
-  if (!shop) return null;
-
-  const session = await prisma.session.findFirst({
-    where: { shop },
-    select: { accessToken: true },
-  });
-
-  return session?.accessToken || null;
-}
-
-/**
- * Search for collections that contain the given product IDs
- * @param {Object} params
- * @param {string} params.shopDomain - The shop domain
- * @param {string[]} params.productIds - Array of product GIDs to search for
- * @returns {Promise<Array>} Collections containing the products
- */
-async function searchCollectionsByProductIds({ shopDomain, productIds }) {
-  const shop = normalizeShopDomain(shopDomain);
-  if (!shop) return [];
-
-  // Get the session for this shop
-  const session = await prisma.session.findFirst({
-    where: { shop },
-    select: { id: true },
-  });
-
-  if (!session) return [];
-
-  // Find all product-collection relationships for the given product IDs
-  const productCollections = await prisma.productCollection.findMany({
-    where: {
-      productId: { in: productIds },
-    },
-    select: {
-      collectionId: true,
-      productId: true,
-    },
-  });
-
-  if (productCollections.length === 0) return [];
-
-  // Get unique collection IDs and count products per collection
-  const collectionProductCounts = {};
-  for (const pc of productCollections) {
-    collectionProductCounts[pc.collectionId] = (collectionProductCounts[pc.collectionId] || 0) + 1;
-  }
-
-  const collectionIds = Object.keys(collectionProductCounts);
-
-  // Fetch collection details (only for collections belonging to this session)
-  const collections = await prisma.collection.findMany({
-    where: {
-      id: { in: collectionIds },
-      sessionId: session.id,
-    },
-    select: {
-      id: true,
-      handle: true,
-      title: true,
-      description: true,
-      collectionType: true,
-      imageUrl: true,
-      productsCount: true,
-    },
-  });
-
-  // Add the matching product count to each collection
-  return collections.map(collection => ({
-    ...collection,
-    matchingProductsCount: collectionProductCounts[collection.id] || 0,
-  }));
-}
-
-/**
- * Execute a local tool by name.
- *
- * @param {string} toolName
- * @param {Object} toolArgs
- * @param {Object} context
- * @param {string} context.shopDomain
- * @param {string} context.conversationId
- * @returns {Promise<Object>} Tool response
- */
-export async function executeLocalTool(toolName, toolArgs, context = {}) {
-  try {
-    switch (toolName) {
-      case "search_products_preferred": {
-        const products = await searchProductsCustom({
-          shopDomain: context.shopDomain,
-          query: toolArgs?.query,
-          limit: toolArgs?.limit,
-        });
-        return asTextContent({ products });
-      }
-
-      case "initiate_return_custom": {
-        const accessToken = await getAccessTokenForShop(context.shopDomain);
-        if (!accessToken) {
-          return {
-            error: {
-              type: "auth_error",
-              data: "No access token found for shop. Please ensure the shop is properly authenticated.",
-            },
-          };
-        }
-
-        const result = await initiateReturn({
-          shopDomain: normalizeShopDomain(context.shopDomain),
-          accessToken,
-          orderId: toolArgs?.order_id,
-          reason: toolArgs?.reason,
-          items: toolArgs?.items,
-        });
-
-        if (result.error) {
-          return {
-            error: {
-              type: "return_error",
-              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
-            },
-          };
-        }
-
-        return asTextContent(result);
-      }
-
-      case "complete_return_custom": {
-        const accessToken = await getAccessTokenForShop(context.shopDomain);
-        if (!accessToken) {
-          return {
-            error: {
-              type: "auth_error",
-              data: "No access token found for shop. Please ensure the shop is properly authenticated.",
-            },
-          };
-        }
-
-        const result = await completeReturn({
-          shopDomain: normalizeShopDomain(context.shopDomain),
-          accessToken,
-          returnId: toolArgs?.return_id,
-          confirm: toolArgs?.confirm,
-        });
-
-        if (result.error) {
-          return {
-            error: {
-              type: "return_error",
-              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
-            },
-          };
-        }
-
-        return asTextContent(result);
-      }
-
-      case "search_collections": {
-        const productIds = toolArgs?.product_ids;
-        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
-          return {
-            error: {
-              type: "invalid_input",
-              data: "product_ids must be a non-empty array of product GIDs",
-            },
-          };
-        }
-
-        const collections = await searchCollectionsByProductIds({
-          shopDomain: context.shopDomain,
-          productIds,
-        });
-
-        return asTextContent({ collections });
-      }
-
-      case "add_to_cart_preferred": {
-        const productId = toolArgs?.product_id;
-        if (!productId) {
-          return {
-            error: {
-              type: "invalid_input",
-              data: "product_id is required. Use the product_id from search_products_preferred results.",
-            },
-          };
-        }
-
-        const result = await addToCart({
-          shopDomain: context.shopDomain,
-          productId,
-          variantId: toolArgs?.variant_id,
-          quantity: toolArgs?.quantity || 1,
-          cartId: context.cartId,  // Pass cart ID for shared cart functionality
-        });
-
-        if (result.error) {
-          return {
-            error: {
-              type: "cart_error",
-              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
-            },
-          };
-        }
-
-        return asTextContent(result);
-      }
-
-      case "get_cart_preferred": {
-        const result = await getCart({
-          shopDomain: context.shopDomain,
-          cartId: context.cartId,  // Cart ID from browser's cart cookie
-        });
-
-        if (result.error) {
-          return {
-            error: {
-              type: "cart_error",
-              data: typeof result.error === "string" ? result.error : result.error.message || JSON.stringify(result.error),
-            },
-          };
-        }
-
-        return asTextContent(result);
-      }
-
-      default:
-        return {
-          error: {
-            type: "tool_not_found",
-            data: `Local tool ${toolName} not found`,
-          },
-        };
-    }
-  } catch (error) {
-    return {
-      error: {
-        type: "internal_error",
-        data: `Error executing local tool ${toolName}: ${error.message}`,
-      },
-    };
-  }
-}
-
-

@@ -446,6 +446,56 @@
     opacity: 0.8;
   }
 
+  /* Checkout button styles */
+  .shop-ai-checkout-trigger {
+    display: inline-block;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #5046e4 0%, #3f36c0 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(80, 70, 228, 0.3);
+    text-decoration: none;
+  }
+
+  .shop-ai-checkout-trigger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(80, 70, 228, 0.4);
+    background: linear-gradient(135deg, #3f36c0 0%, #2f26a0 100%);
+  }
+
+  .shop-ai-checkout-trigger:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(80, 70, 228, 0.3);
+  }
+
+  /* Checkout component overlay customization */
+  shopify-checkout::part(overlay) {
+    backdrop-filter: blur(8px);
+    background-color: rgba(0, 0, 0, 0.7);
+  }
+
+  /* Inline checkout component styling */
+  shopify-checkout[target="inline"] {
+    display: block;
+    width: 100%;
+    min-height: 600px;
+    height: 600px;
+    margin: 15px 0;
+    border: 1px solid #eaeaea;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  /* Ensure checkout component fits within chat messages container */
+  .shop-ai-chat-messages shopify-checkout {
+    margin: 15px 0;
+  }
+
   /* Product Section Styling */
   .shop-ai-product-section {
     display: flex;

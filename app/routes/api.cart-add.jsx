@@ -202,11 +202,22 @@ export async function action({ request }) {
       );
     }
 
-    // Generate confirmation message
+    // Append storefront access token to checkout URL for sales attribution
+    const checkoutUrlWithAttribution = result.cart.checkoutUrl 
+      ? `${result.cart.checkoutUrl}${result.cart.checkoutUrl.includes('?') ? '&' : '?'}access_token=${storefrontAccessToken}`
+      : null;
+
+    // Create cart object with attributed checkout URL for confirmation message
+    const cartWithAttribution = {
+      ...result.cart,
+      checkoutUrl: checkoutUrlWithAttribution,
+    };
+
+    // Generate confirmation message with attributed checkout URL
     const confirmationMessage = generateStorefrontCartConfirmation({
       productTitle: productTitle || "item",
       quantity,
-      cart: result.cart,
+      cart: cartWithAttribution,
     });
 
     return new Response(
@@ -216,7 +227,7 @@ export async function action({ request }) {
         cart: {
           id: result.cart.id,
           totalQuantity: result.cart.totalQuantity,
-          checkoutUrl: result.cart.checkoutUrl,
+          checkoutUrl: checkoutUrlWithAttribution,
           totalAmount: result.cart.cost?.totalAmount,
         },
       }),

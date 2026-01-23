@@ -1,6 +1,7 @@
 import { generateAuthUrl } from "./auth.server";
 import { getCustomerToken } from "./db.server";
-import { localTools, executeLocalTool } from "./tools/local-tool-definitions";
+import { localTools } from "./tools/local-tool-definitions";
+import { executeLocalTool } from "./tools/local-tool-executor";
 import AppConfig from "./services/config.server";
 
 /**
@@ -50,16 +51,35 @@ class MCPClient {
         }
 
         try {
+            console.log("=== CONNECT TO CUSTOMER SERVER DEBUG ===");
             console.log(`Connecting to MCP server at ${this.customerMcpEndpoint}`);
+            console.log("Conversation ID:", this.conversationId);
+            console.log("Shop ID:", this.shopId);
+            console.log("Host URL:", this.hostUrl);
 
             if (this.conversationId) {
+                console.log("Looking up token for conversation:", this.conversationId);
                 const dbToken = await getCustomerToken(this.conversationId);
+                
+                console.log("Token lookup result:", {
+                    found: Boolean(dbToken),
+                    tokenId: dbToken?.id || "N/A",
+                    conversationIdInDb: dbToken?.conversationId || "N/A",
+                    hasAccessToken: Boolean(dbToken?.accessToken),
+                    tokenLength: dbToken?.accessToken?.length || 0,
+                    expiresAt: dbToken?.expiresAt || "N/A",
+                    isExpired: dbToken?.expiresAt ? new Date(dbToken.expiresAt) < new Date() : "N/A"
+                });
 
                 if (dbToken && dbToken.accessToken) {
                     this.customerAccessToken = dbToken.accessToken;
+                    console.log("Token set from database, preview:", 
+                        dbToken.accessToken.substring(0, 20) + "..." + dbToken.accessToken.substring(dbToken.accessToken.length - 10));
                 } else {
                     console.log("No token in database for conversation:", this.conversationId);
                 }
+            } else {
+                console.log("No conversation ID provided, cannot look up token");
             }
 
             // If we still don't have a token, we'll connect without one
@@ -68,6 +88,8 @@ class MCPClient {
                 "Content-Type": "application/json",
                 "Authorization": this.customerAccessToken || ""
             };
+            
+            console.log("Connecting with token:", this.customerAccessToken ? "YES" : "NO");
 
             const response = await this._makeJsonRpcRequest(
                 this.customerMcpEndpoint,
@@ -82,6 +104,9 @@ class MCPClient {
 
             this.customerTools = customerTools;
             this.tools = [...this.tools, ...customerTools];
+            
+            console.log("Customer tools loaded:", customerTools.map(t => t.name));
+            console.log("=== END CONNECT TO CUSTOMER SERVER DEBUG ===");
 
             return customerTools;
         } catch (e) {
@@ -184,7 +209,54 @@ class MCPClient {
     }
 
     /**
+     * Normalize cart ID to the correct Storefront API format
+     * Ensures cart ID is in format: gid://shopify/Cart/{id}
+     *
+     * @param {string} cartId - The cart ID (may be in various formats)
+     * @returns {string|null} Normalized cart GID
+     */
+    _normalizeCartId(cartId) {
+        if (!cartId) return null;
+        
+        // Strip Shopify cart cookie key suffix (token?key=...) if present
+        let normalizedId = cartId;
+        if (typeof normalizedId === 'string' && normalizedId.includes('%')) {
+            try {
+                normalizedId = decodeURIComponent(normalizedId);
+            } catch {
+                // ignore decode errors
+            }
+        }
+        if (typeof normalizedId === 'string' && normalizedId.includes('?key=')) {
+            normalizedId = normalizedId.split('?')[0];
+        }
+
+        // If already in correct format, return as-is
+        if (normalizedId.startsWith('gid://shopify/Cart/')) {
+            return normalizedId;
+        }
+        
+        // Extract the ID part (handle various formats)
+        let id = normalizedId;
+        
+        // If it's a GID but wrong format, extract the ID
+        if (normalizedId.includes('/')) {
+            const parts = normalizedId.split('/');
+            id = parts[parts.length - 1];
+        }
+        
+        // Ensure it's a valid ID (not empty)
+        if (!id || id.trim() === '') {
+            return null;
+        }
+        
+        // Return in correct format
+        return `gid://shopify/Cart/${id}`;
+    }
+
+    /**
      * Calls a tool on the storefront MCP server.
+     * Automatically injects cartId for cart-related tools if available.
      *
      * @param {string} toolName - Name of the storefront tool to call
      * @param {Object} toolArgs - Arguments to pass to the tool
@@ -193,7 +265,27 @@ class MCPClient {
      */
     async callStorefrontTool(toolName, toolArgs) {
         try {
-            console.log("Calling storefront tool", toolName, toolArgs);
+            // For cart-related tools, inject cartId if available and not already provided
+            const isCartTool = toolName && (
+                toolName.toLowerCase().includes('cart') ||
+                toolName === 'update_cart' ||
+                toolName === 'get_cart'
+            );
+
+            // Merge cartId into tool arguments if:
+            // 1. It's a cart-related tool
+            // 2. We have a cartId available
+            // 3. cartId is not already in the arguments
+            const finalArgs = { ...toolArgs };
+            if (isCartTool && this.cartId && !finalArgs.cartId) {
+                // Normalize cart ID to ensure proper format for Shopify's Storefront API
+                finalArgs.cartId = this._normalizeCartId(this.cartId);
+            } else if (isCartTool && finalArgs.cartId) {
+                // Also normalize if cartId was explicitly provided in toolArgs
+                finalArgs.cartId = this._normalizeCartId(finalArgs.cartId);
+            }
+
+            console.log("Calling storefront tool", toolName, finalArgs);
 
             const headers = {
                 "Content-Type": "application/json"
@@ -204,7 +296,7 @@ class MCPClient {
                 "tools/call",
                 {
                     name: toolName,
-                    arguments: toolArgs,
+                    arguments: finalArgs,
                 },
                 headers
             );
@@ -227,19 +319,42 @@ class MCPClient {
      */
     async callCustomerTool(toolName, toolArgs) {
         try {
-            console.log("Calling customer tool", toolName, toolArgs);
+            console.log("=== CUSTOMER TOOL DEBUG START ===");
+            console.log("Calling customer tool:", toolName);
+            console.log("Tool arguments:", JSON.stringify(toolArgs, null, 2));
+            console.log("Conversation ID:", this.conversationId);
+            console.log("Shop ID:", this.shopId);
+            console.log("Host URL:", this.hostUrl);
+            console.log("Customer MCP Endpoint:", this.customerMcpEndpoint);
+            
             // First try to get a token from the database for this conversation
             let accessToken = this.customerAccessToken;
+            console.log("Cached accessToken exists:", Boolean(accessToken));
 
             if (!accessToken || accessToken === "") {
+                console.log("Fetching token from database for conversation:", this.conversationId);
                 const dbToken = await getCustomerToken(this.conversationId);
+                
+                console.log("Database token lookup result:", {
+                    found: Boolean(dbToken),
+                    hasAccessToken: Boolean(dbToken?.accessToken),
+                    tokenId: dbToken?.id || "N/A",
+                    conversationIdInDb: dbToken?.conversationId || "N/A",
+                    expiresAt: dbToken?.expiresAt || "N/A",
+                    isExpired: dbToken?.expiresAt ? new Date(dbToken.expiresAt) < new Date() : "N/A"
+                });
 
                 if (dbToken && dbToken.accessToken) {
                     accessToken = dbToken.accessToken;
                     this.customerAccessToken = accessToken; // Store it for later use
+                    console.log("Token retrieved from database, length:", accessToken.length);
+                    // Log first/last few chars for debugging (safe - not exposing full token)
+                    console.log("Token preview:", accessToken.substring(0, 20) + "..." + accessToken.substring(accessToken.length - 10));
                 } else {
-                    console.log("No token in database for conversation:", this.conversationId);
+                    console.log("No valid token in database for conversation:", this.conversationId);
                 }
+            } else {
+                console.log("Using cached token, length:", accessToken.length);
             }
 
             const headers = {
@@ -247,18 +362,53 @@ class MCPClient {
                 "Authorization": accessToken
             };
 
+            console.log("Request headers:", {
+                "Content-Type": headers["Content-Type"],
+                "Authorization": accessToken ? `[Token present, length: ${accessToken.length}]` : "[No token]"
+            });
+
+            console.log("Customer tool request summary:", {
+                toolName,
+                endpoint: this.customerMcpEndpoint,
+                hasAccessToken: Boolean(accessToken),
+                tokenLength: accessToken ? accessToken.length : 0,
+                argsType: toolArgs ? typeof toolArgs : "undefined",
+                argKeys: toolArgs && typeof toolArgs === "object" ? Object.keys(toolArgs) : [],
+            });
+
             try {
+                console.log("Making JSON-RPC request to customer MCP...");
+                const requestPayload = {
+                    name: toolName,
+                    arguments: toolArgs,
+                };
+                console.log("Request payload:", JSON.stringify(requestPayload, null, 2));
+                
                 const response = await this._makeJsonRpcRequest(
                     this.customerMcpEndpoint,
                     "tools/call",
-                    {
-                        name: toolName,
-                        arguments: toolArgs,
-                    },
+                    requestPayload,
                     headers
                 );
 
-                return response.result || response;
+                console.log("Raw response from customer MCP:", JSON.stringify(response, null, 2));
+
+                const result = response.result || response;
+                const contentText = result?.content?.[0]?.text;
+
+                console.log("Customer tool response parsed:", {
+                    toolName,
+                    hasError: Boolean(result?.error),
+                    resultKeys: result && typeof result === "object" ? Object.keys(result) : [],
+                    contentType: typeof contentText,
+                    contentLength: typeof contentText === "string" ? contentText.length : 0,
+                    contentPreview: typeof contentText === "string" ? contentText.substring(0, 500) : "N/A",
+                    fullContent: result?.content,
+                });
+                
+                console.log("=== CUSTOMER TOOL DEBUG END ===");
+
+                return result;
             } catch (error) {
                 // Handle 401 specifically to trigger authentication
                 if (error.status === 401) {
@@ -311,25 +461,42 @@ class MCPClient {
      * @throws {Error} If the request fails
      */
     async _makeJsonRpcRequest(endpoint, method, params, headers) {
+        const requestBody = {
+            jsonrpc: "2.0",
+            method: method,
+            id: 1,
+            params: params
+        };
+        
+        console.log(`[JSON-RPC] Request to ${endpoint}`);
+        console.log(`[JSON-RPC] Method: ${method}`);
+        console.log(`[JSON-RPC] Body:`, JSON.stringify(requestBody, null, 2));
+        console.log(`[JSON-RPC] Headers:`, {
+            ...headers,
+            Authorization: headers.Authorization ? `[Token length: ${headers.Authorization.length}]` : "[No token]"
+        });
+        
         const response = await fetch(endpoint, {
             method: "POST",
             headers: headers,
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                method: method,
-                id: 1,
-                params: params
-            }),
+            body: JSON.stringify(requestBody),
         });
+
+        console.log(`[JSON-RPC] Response status: ${response.status} ${response.statusText}`);
+        console.log(`[JSON-RPC] Response headers:`, Object.fromEntries(response.headers.entries()));
 
         if (!response.ok) {
             const error = await response.text();
+            console.log(`[JSON-RPC] Error response body:`, error);
             const errorObj = new Error(`Request failed: ${response.status} ${error}`);
             errorObj.status = response.status;
             throw errorObj;
         }
 
-        return await response.json();
+        const jsonResponse = await response.json();
+        console.log(`[JSON-RPC] Success response:`, JSON.stringify(jsonResponse, null, 2).substring(0, 1000));
+        
+        return jsonResponse;
     }
 
     /**

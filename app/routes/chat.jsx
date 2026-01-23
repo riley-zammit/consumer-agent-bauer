@@ -132,7 +132,18 @@ async function handleChatSession({
   // Initialize MCP client
   const shopId = request.headers.get("X-Shopify-Shop-Id");
   const shopDomain = request.headers.get("Origin");
-  const { mcpApiUrl } = await getCustomerAccountUrls(shopDomain, conversationId);
+  
+  console.log("=== CHAT SESSION INITIALIZATION DEBUG ===");
+  console.log("Shop ID from header:", shopId);
+  console.log("Shop Domain from Origin:", shopDomain);
+  console.log("Conversation ID:", conversationId);
+  console.log("Cart ID:", cartId);
+  
+  const customerAccountUrls = await getCustomerAccountUrls(shopDomain, conversationId);
+  const { mcpApiUrl } = customerAccountUrls || {};
+  
+  console.log("Customer Account URLs result:", customerAccountUrls);
+  console.log("MCP API URL:", mcpApiUrl);
 
   const mcpClient = new MCPClient(
     shopDomain,
@@ -141,6 +152,15 @@ async function handleChatSession({
     mcpApiUrl,
     { cartId }  // Pass cart ID for shared cart functionality
   );
+  
+  console.log("MCPClient created with:", {
+    hostUrl: shopDomain,
+    conversationId,
+    shopId,
+    customerMcpEndpoint: mcpClient.customerMcpEndpoint,
+    cartId
+  });
+  console.log("=== END CHAT SESSION INITIALIZATION DEBUG ===");
 
 
     // Send conversation ID to client

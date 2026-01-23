@@ -45,6 +45,29 @@ model CustomerToken {
   @@index([conversationId])
 }
 
+model CustomerSensitiveData {
+  id             String   @id @default(cuid())
+  conversationId String
+  data           String
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+model CustomerSupportTicket {
+  id             String   @id @default(cuid())
+  conversationId String
+  subject        String
+  message        String?
+  status         String   @default("open")
+  metadata       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([conversationId])
+  @@index([conversationId, updatedAt])
+}
+
 model CodeVerifier {
   id              String    @id
   state           String    @unique

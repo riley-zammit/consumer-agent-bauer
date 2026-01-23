@@ -1,6 +1,15 @@
 {{ 'chat.css' | asset_url | stylesheet_tag }}
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
+<!-- Load Shopify Checkout Web Components -->
+<script src="https://cdn.shopify.com/shopifycloud/checkout-web/component/unstable/kit.js" defer></script>
+{% comment %} <script 
+    type="module" 
+    src="https://cdn.shopifycloud.com/checkout-web/component/kit.14f1e6139d0bcd14d7578196800379ca9b80eed1.js" 
+    integrity="sha384-3XHYzB5Ew6H+2VQJ7arsRB2xa4iuUeyrTa0+bfr1pJKQBgb2d4NvE1AjWUO24CL9"
+/> {% endcomment %}
+    
+
 <div class="shop-ai-chat-container">
   <div class="shop-ai-chat-bubble" style="background-color: {{ block.settings.chat_bubble_color }}">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

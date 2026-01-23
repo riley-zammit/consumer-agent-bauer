@@ -36,7 +36,7 @@ export const AppConfig = {
         // Customer MCP - order status, returns, store credit (requires customer auth)
         enableCustomerMcp: true,
         // Local tools - custom search, demo return flow
-        enableLocalTools: true,
+        enableLocalTools: false,
     }
 
 };

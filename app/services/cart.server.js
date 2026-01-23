@@ -224,18 +224,31 @@ async function storefrontApiRequest({ shopDomain, storefrontAccessToken, query, 
  */
 function normalizeCartId(cartId) {
   if (!cartId) return null;
-  
+
+  // Strip Shopify cart cookie key suffix (token?key=...) if present
+  let normalizedId = cartId;
+  if (typeof normalizedId === 'string' && normalizedId.includes('%')) {
+    try {
+      normalizedId = decodeURIComponent(normalizedId);
+    } catch {
+      // ignore decode errors
+    }
+  }
+  if (typeof normalizedId === 'string' && normalizedId.includes('?key=')) {
+    normalizedId = normalizedId.split('?')[0];
+  }
+
   // If already in correct format, return as-is
-  if (cartId.startsWith('gid://shopify/Cart/')) {
-    return cartId;
+  if (normalizedId.startsWith('gid://shopify/Cart/')) {
+    return normalizedId;
   }
   
   // Extract the ID part (handle various formats)
-  let id = cartId;
+  let id = normalizedId;
   
   // If it's a GID but wrong format, extract the ID
-  if (cartId.includes('/')) {
-    const parts = cartId.split('/');
+  if (normalizedId.includes('/')) {
+    const parts = normalizedId.split('/');
     id = parts[parts.length - 1];
   }
   
@@ -540,12 +553,16 @@ export async function getCart({ shopDomain, cartId }) {
       };
     });
 
-    // Build the response
+    // Build the response with storefront access token appended to checkout URL for sales attribution
+    const checkoutUrlWithAttribution = cart.checkoutUrl 
+      ? `${cart.checkoutUrl}${cart.checkoutUrl.includes('?') ? '&' : '?'}access_token=${storefrontAccessToken}`
+      : null;
+
     return {
       success: true,
       cart: {
         id: cart.id,
-        checkoutUrl: cart.checkoutUrl,
+        checkoutUrl: checkoutUrlWithAttribution,
         createdAt: cart.createdAt,
         updatedAt: cart.updatedAt,
         note: cart.note,
@@ -894,6 +911,11 @@ export async function addToCart({ shopDomain, productId, variantId, quantity = 1
       `$${(parseFloat(variantPrice) * quantity).toFixed(2)}` :
       "Price unavailable";
 
+    // Append storefront access token to checkout URL for sales attribution
+    const checkoutUrlWithAttribution = cartResult.cart.checkoutUrl 
+      ? `${cartResult.cart.checkoutUrl}${cartResult.cart.checkoutUrl.includes('?') ? '&' : '?'}access_token=${storefrontAccessToken}`
+      : null;
+
     // Build the response for Claude to synthesize
     // Include cart ID so the client can update the cart cookie if needed
     const response = {
@@ -908,7 +930,7 @@ export async function addToCart({ shopDomain, productId, variantId, quantity = 1
       },
       cart: {
         id: cartResult.cart.id,
-        checkoutUrl: cartResult.cart.checkoutUrl,
+        checkoutUrl: checkoutUrlWithAttribution,
         totalQuantity: cartResult.cart.totalQuantity,
       },
       // Flag to indicate if a new cart was created (for client-side cookie handling)

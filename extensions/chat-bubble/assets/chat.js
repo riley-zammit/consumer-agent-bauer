@@ -21,8 +21,17 @@
          */
         CartCookie: {
             /**
+             * Check if a cart value looks like a GID (raw or URL-encoded)
+             * @param {string|null} value - Cart value to inspect
+             * @returns {boolean} True if value appears to be a GID
+             */
+            isGidLike: function (value) {
+                if (!value || typeof value !== 'string') return false;
+                return value.includes('gid://shopify/Cart/') || value.includes('gid%3A%2F%2Fshopify%2FCart%2F');
+            },
+            /**
              * Read the cart ID from the browser's cart cookie
-             * @returns {string|null} The cart GID or null if no cart cookie exists
+             * @returns {string|null} The cart token/key value or null if no cart cookie exists
              */
             getCartIdFromCookie: function () {
                 const match = document.cookie.match(/(?:^|; )cart=([^;]*)/);
@@ -30,13 +39,82 @@
             },
 
             /**
+             * Build the cart cookie value from cart data
+             * Shopify's cart cookie uses the cart token and optional key, not a GID
+             * @param {Object|string} cartOrId - Cart object (preferred) or cart ID string
+             * @returns {string|null} Cart cookie value or null if unavailable
+             */
+            getCartCookieValue: function (cartOrId) {
+                if (!cartOrId) return null;
+
+                const cart = typeof cartOrId === 'object' ? cartOrId : null;
+                let cartId = typeof cartOrId === 'string' ? cartOrId : cart?.id;
+                const checkoutUrl = cart?.checkoutUrl;
+
+                if (checkoutUrl) {
+                    try {
+                        const url = new URL(checkoutUrl, window.location.origin);
+                        const key = url.searchParams.get('key');
+                        const match = url.pathname.match(/\/cart\/c\/([^/]+)/) || url.pathname.match(/\/cart\/([^/]+)/);
+                        const token = match ? match[1] : null;
+                        if (token) {
+                            return key ? `${token}?key=${key}` : token;
+                        }
+                    } catch {
+                        // ignore invalid URL, fall through to cartId parsing
+                    }
+                }
+
+                if (!cartId) return null;
+
+                // Decode URL-encoded cart IDs if needed (e.g. gid%3A%2F%2Fshopify%2FCart%2F...)
+                if (typeof cartId === 'string' && cartId.includes('%')) {
+                    try {
+                        cartId = decodeURIComponent(cartId);
+                    } catch {
+                        // ignore decode errors, keep original value
+                    }
+                }
+
+                // If cartId is already a GID, strip the prefix to get the token
+                if (cartId.startsWith('gid://shopify/Cart/')) {
+                    return cartId.replace('gid://shopify/Cart/', '');
+                }
+
+                // Try to decode base64 IDs to extract the cart token
+                const decoded = this.decodeCartId(cartId);
+                if (decoded && decoded.startsWith('gid://shopify/Cart/')) {
+                    return decoded.split('/').pop();
+                }
+
+                return cartId;
+            },
+
+            /**
+             * Decode a Storefront API cart ID (base64) to its GID string
+             * @param {string} cartId - Base64 cart ID
+             * @returns {string|null} Decoded GID or null if invalid
+             */
+            decodeCartId: function (cartId) {
+                if (!cartId || typeof cartId !== 'string') return null;
+                try {
+                    const normalized = cartId.replace(/-/g, '+').replace(/_/g, '/');
+                    const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+                    return atob(padded);
+                } catch {
+                    return null;
+                }
+            },
+
+            /**
              * Set the cart cookie (used as fallback for SSE streams where Set-Cookie headers may not work)
              * Only call this when the agent creates a NEW cart (agent-first flow)
-             * @param {string} cartId - The cart GID to store
+             * @param {Object|string} cartOrId - Cart object (preferred) or cart ID string
              */
-            setCartCookie: function (cartId) {
-                if (cartId) {
-                    document.cookie = `cart=${encodeURIComponent(cartId)}; path=/; max-age=31536000; SameSite=Lax`;
+            setCartCookie: function (cartOrId) {
+                const cookieValue = this.getCartCookieValue(cartOrId);
+                if (cookieValue) {
+                    document.cookie = `cart=${encodeURIComponent(cookieValue)}; path=/; max-age=31536000; SameSite=Lax`;
                 }
             },
 
@@ -233,6 +311,11 @@
                         if (window.shopAuthUrl) {
                             ShopAIChat.Auth.openAuthPopup(window.shopAuthUrl);
                         }
+                    }
+                    // Handle checkout button clicks
+                    if (event.target && event.target.classList.contains('shop-ai-checkout-trigger')) {
+                        event.preventDefault();
+                        ShopAIChat.Checkout.openEmbeddedCheckout(event.target);
                     }
                 });
             },
@@ -579,9 +662,11 @@
                         // Just return normal link that will be handled by the document click handler
                         return '<a href="#auth" class="shop-auth-trigger">' + text + '</a>';
                     }
-                    // If it's a checkout link, replace the text
+                    // If it's a checkout link, use embedded checkout component
                     else if (url.includes('/cart') || url.includes('checkout')) {
-                        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">click here to proceed to checkout</a>';
+                        // Store checkout URL for the component
+                        const checkoutId = 'checkout-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                        return '<button class="shop-ai-checkout-trigger" data-checkout-url="' + url + '" data-checkout-id="' + checkoutId + '">Proceed to Checkout</button>';
                     } else {
                         // For normal links, preserve the original text
                         return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
@@ -611,7 +696,7 @@
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
                     const unorderedMatch = line.match(/^\s*([-*])\s+(.*)/);
-                    const orderedMatch = line.match(/^\s*(\d+)[\.)]\s+(.*)/);
+                    const orderedMatch = line.match(/^\s*(\d+)[.)]\s+(.*)/);
 
                     if (unorderedMatch) {
                         if (currentList !== 'ul') {
@@ -652,7 +737,7 @@
                 if (currentList) {
                     htmlContent += currentList === 'ul'
                         ? '<ul>' + listItems.join('') + '</ul>'
-                        : `<ol start="${startNumber}">` + listItems.join('') + '</ol>';
+                        : '<ol start="' + startNumber + '">' + listItems.join('') + '</ol>';
                 }
 
                 htmlContent = htmlContent.replace(/<\/p><p>/g, '</p>\n<p>');
@@ -710,6 +795,7 @@
                     currentMessageElement = messageElement;
 
                     // Process the stream
+                    // eslint-disable-next-line no-constant-condition
                     while (true) {
                         const { value, done } = await reader.read();
                         if (done) break;
@@ -798,7 +884,7 @@
                         }
                         break;
 
-                    case 'new_message':
+                    case 'new_message': {
                         ShopAIChat.Formatting.formatMessageContent(currentMessageElement);
                         ShopAIChat.UI.showTypingIndicator();
 
@@ -812,6 +898,7 @@
                         // Update the current element reference
                         updateCurrentElement(newMessageElement);
                         break;
+                    }
 
                     case 'content_block_complete':
                         ShopAIChat.UI.showTypingIndicator();
@@ -820,9 +907,12 @@
                     case 'cart_updated':
                         // Handle cart updates from agent add-to-cart operations
                         // Only set cookie if we didn't have a cart before (agent-first flow)
-                        if (data.cart?.id && !ShopAIChat.localCartId) {
-                            ShopAIChat.CartCookie.setCartCookie(data.cart.id);
-                            ShopAIChat.localCartId = data.cart.id;
+                        if (data.cart && (!ShopAIChat.localCartId || ShopAIChat.CartCookie.isGidLike(ShopAIChat.localCartId))) {
+                            const cookieValue = ShopAIChat.CartCookie.getCartCookieValue(data.cart);
+                            if (cookieValue) {
+                                ShopAIChat.CartCookie.setCartCookie(cookieValue);
+                                ShopAIChat.localCartId = cookieValue;
+                            }
                         }
                         // Always refresh theme cart count after agent adds to cart
                         ShopAIChat.CartCookie.refreshCartCount();
@@ -1131,10 +1221,10 @@
              * @param {string} cartId - The cart GID
              */
             setCartId: function (cartId) {
-                if (cartId && !ShopAIChat.localCartId) {
+                if (cartId && (!ShopAIChat.localCartId || ShopAIChat.CartCookie.isGidLike(ShopAIChat.localCartId))) {
                     // Only set cookie if we didn't have a cart (agent-first flow)
                     ShopAIChat.CartCookie.setCartCookie(cartId);
-                    ShopAIChat.localCartId = cartId;
+                    ShopAIChat.localCartId = ShopAIChat.CartCookie.getCartCookieValue(cartId);
                 }
             },
 
@@ -1186,7 +1276,7 @@
 
                     // Store the cart ID for future operations
                     if (result.cart && result.cart.id) {
-                        this.setCartId(result.cart.id);
+                        this.setCartId(result.cart);
                     }
 
                     // Refresh theme cart count from /cart.js for accurate count
@@ -1347,6 +1437,148 @@
                 // Also try to trigger Shopify's built-in cart update event
                 if (window.Shopify && window.Shopify.theme && window.Shopify.theme.name) {
                     document.dispatchEvent(new CustomEvent('cart:refresh'));
+                }
+            }
+        },
+
+        /**
+         * Embedded Checkout functionality using Shopify Checkout Web Components
+         */
+        Checkout: {
+            /**
+             * Open embedded checkout inline in the chat window
+             * @param {HTMLElement} triggerButton - The button that was clicked
+             */
+            openEmbeddedCheckout: async function (triggerButton) {
+                const checkoutUrl = triggerButton.getAttribute('data-checkout-url');
+
+                if (!checkoutUrl) {
+                    console.error('No checkout URL found');
+                    return;
+                }
+
+                // Create checkout component if it doesn't exist
+                let checkoutComponent = document.querySelector('shopify-checkout');
+                if (!checkoutComponent) {
+                    checkoutComponent = document.createElement('shopify-checkout');
+                    checkoutComponent.setAttribute('id', 'shop-ai-checkout');
+                    
+                    // Add styling for inline checkout container
+                    checkoutComponent.style.display = 'block';
+                    checkoutComponent.style.width = '100%';
+                    checkoutComponent.style.height = '600px';
+                    checkoutComponent.style.minHeight = '600px';
+                    
+                    // Insert into chat messages container for inline display
+                    const messagesContainer = document.querySelector('.shop-ai-chat-messages');
+                    if (messagesContainer) {
+                        messagesContainer.appendChild(checkoutComponent);
+                    } else {
+                        document.body.appendChild(checkoutComponent);
+                    }
+
+                    // Listen for checkout completion
+                    checkoutComponent.addEventListener('checkout:complete', (event) => {
+                        this.handleCheckoutComplete(event);
+                    });
+
+                    // Listen for checkout close
+                    checkoutComponent.addEventListener('checkout:close', (event) => {
+                        this.handleCheckoutClose(event);
+                    });
+                }
+
+                try {
+                    // Fetch authentication token from server
+                    // const authResponse = await fetch('https://localhost:3458/api/checkout-auth', {
+                    //     method: 'POST',
+                    //     headers: {
+                    //         'Content-Type': 'application/json',
+                    //     },
+                    // });
+
+                    // if (!authResponse.ok) {
+                    //     throw new Error('Failed to get authentication token');
+                    // }
+
+                    // const authToken = await authResponse.text();
+
+                    // // Set checkout URL, authentication token, and target mode
+                    // console.log("TOKEN:", authToken);
+                    // checkoutComponent.setAttribute('src', checkoutUrl);
+                    // checkoutComponent.setAttribute('auth', authToken);
+                    // checkoutComponent.setAttribute('target', 'inline');
+                    checkoutComponent.setAttribute('src', checkoutUrl);
+                    checkoutComponent.setAttribute('target', 'popup');
+                    setTimeout(() => {
+                        if (checkoutComponent.open) {
+                            checkoutComponent.open();
+                        }
+                    }, 100);
+                    
+                    // Scroll to checkout component
+                    checkoutComponent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } catch (error) {
+                    console.error('Error setting up inline checkout:', error);
+                    
+                    // Fallback to popup mode if authentication fails
+                    checkoutComponent.setAttribute('src', checkoutUrl);
+                    checkoutComponent.setAttribute('target', 'popup');
+                    
+                    setTimeout(() => {
+                        if (checkoutComponent.open) {
+                            checkoutComponent.open();
+                        }
+                    }, 100);
+                }
+            },
+
+            /**
+             * Handle checkout completion event
+             * @param {Event} event - Checkout complete event
+             */
+            handleCheckoutComplete: function (event) {
+                const messagesContainer = document.querySelector('.shop-ai-chat-messages');
+                
+                // Get order confirmation details if available
+                const orderConfirmation = event.target?.orderConfirmation;
+                
+                let message = '🎉 Thank you for your purchase! Your order has been completed.';
+                
+                if (orderConfirmation) {
+                    message += ` Order #${orderConfirmation.orderNumber || 'confirmed'}`;
+                }
+
+                // Remove inline checkout component after completion
+                const checkoutComponent = event.target || document.querySelector('shopify-checkout[target="inline"]');
+                if (checkoutComponent && checkoutComponent.getAttribute('target') === 'inline') {
+                    // Delay removal slightly to allow user to see completion
+                    setTimeout(() => {
+                        checkoutComponent.remove();
+                    }, 2000);
+                }
+
+                // Add confirmation message to chat
+                ShopAIChat.Message.add(message, 'assistant', messagesContainer);
+
+                // Clear the cart cookie since checkout is complete
+                document.cookie = 'cart=; path=/; max-age=0';
+                ShopAIChat.localCartId = null;
+
+                // Refresh cart count to show empty cart
+                ShopAIChat.CartCookie.refreshCartCount();
+            },
+
+            /**
+             * Handle checkout close event (user closed without completing)
+             */
+            handleCheckoutClose: function (event) {
+                console.log('Checkout closed');
+                
+                // For inline mode, remove the checkout component from the DOM
+                const checkoutComponent = event.target || document.querySelector('shopify-checkout[target="inline"]');
+                if (checkoutComponent && checkoutComponent.getAttribute('target') === 'inline') {
+                    checkoutComponent.remove();
                 }
             }
         },

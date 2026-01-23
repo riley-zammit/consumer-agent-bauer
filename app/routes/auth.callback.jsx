@@ -23,14 +23,29 @@ export async function loader({ request }) {
       const expiresAt = new Date();
       expiresAt.setSeconds(expiresAt.getSeconds() + tokenResponse.expires_in);
 
+      console.log("=== AUTH CALLBACK TOKEN STORAGE DEBUG ===");
+      console.log("Conversation ID from state:", conversationId);
+      console.log("Shop ID from state:", shopId);
+      console.log("Token expires_in (seconds):", tokenResponse.expires_in);
+      console.log("Calculated expiresAt:", expiresAt.toISOString());
+      console.log("Token length:", tokenResponse.access_token?.length || 0);
+      console.log("Token preview:", tokenResponse.access_token ? 
+        tokenResponse.access_token.substring(0, 30) + "..." + tokenResponse.access_token.substring(tokenResponse.access_token.length - 10) : "N/A");
+      console.log("Full token response keys:", Object.keys(tokenResponse));
+
       // Store in database with conversation ID
-      await storeCustomerToken(
+      const storedToken = await storeCustomerToken(
         conversationId,
         tokenResponse.access_token,
         expiresAt
       );
 
-      console.log('Stored customer token in database for conversation:', conversationId);
+      console.log('Stored customer token in database:', {
+        tokenId: storedToken?.id,
+        conversationId: storedToken?.conversationId,
+        expiresAt: storedToken?.expiresAt
+      });
+      console.log("=== END AUTH CALLBACK TOKEN STORAGE DEBUG ===");
     } catch (error) {
       console.error('Failed to store token in database:', error);
       // Continue anyway to not disrupt user flow

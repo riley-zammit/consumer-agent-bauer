@@ -117,7 +117,25 @@ export async function storeCustomerToken(conversationId, accessToken, expiresAt)
  * @returns {Promise<Object|null>} - The customer token or null if not found/expired
  */
 export async function getCustomerToken(conversationId) {
+  console.log("[getCustomerToken] Looking up token for conversationId:", conversationId);
+  console.log("[getCustomerToken] Current time:", new Date().toISOString());
+  
   try {
+    // First, let's see ALL tokens for this conversation (including expired) for debugging
+    const allTokens = await prisma.customerToken.findMany({
+      where: { conversationId }
+    });
+    console.log("[getCustomerToken] All tokens for this conversation:", allTokens.map(t => ({
+      id: t.id,
+      conversationId: t.conversationId,
+      tokenLength: t.accessToken?.length || 0,
+      tokenPreview: t.accessToken ? t.accessToken.substring(0, 20) + "..." : "N/A",
+      expiresAt: t.expiresAt,
+      isExpired: new Date(t.expiresAt) < new Date(),
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt
+    })));
+    
     const token = await prisma.customerToken.findFirst({
       where: {
         conversationId,
@@ -127,9 +145,146 @@ export async function getCustomerToken(conversationId) {
       }
     });
 
+    console.log("[getCustomerToken] Valid (non-expired) token found:", token ? {
+      id: token.id,
+      conversationId: token.conversationId,
+      tokenLength: token.accessToken?.length || 0,
+      expiresAt: token.expiresAt,
+      createdAt: token.createdAt
+    } : "NONE");
+
     return token;
   } catch (error) {
-    console.error('Error retrieving customer token:', error);
+    console.error('[getCustomerToken] Error retrieving customer token:', error);
+    return null;
+  }
+}
+
+/**
+ * Store mock sensitive data for a customer conversation
+ * @param {string} conversationId - The conversation ID
+ * @param {string} data - Serialized mock sensitive data
+ * @returns {Promise<Object>} - The saved record
+ */
+export async function storeCustomerSensitiveData(conversationId, data) {
+  try {
+    return await prisma.customerSensitiveData.create({
+      data: {
+        conversationId,
+        data
+      }
+    });
+  } catch (error) {
+    console.error('Error storing customer sensitive data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create or update a customer support ticket scoped to a conversation
+ * @param {Object} params
+ * @param {string} params.conversationId - Conversation identifier (required)
+ * @param {string} [params.ticketId] - Existing ticket id to update
+ * @param {string} [params.subject] - Ticket subject/title
+ * @param {string} [params.message] - Latest message or note
+ * @param {string} [params.status] - Ticket status: open|pending|resolved|closed
+ * @param {any} [params.metadata] - Optional structured metadata
+ * @returns {Promise<Object>} - The created or updated ticket
+ */
+export async function upsertCustomerSupportTicket({
+  conversationId,
+  ticketId,
+  subject,
+  message,
+  status,
+  metadata
+}) {
+  if (!conversationId) {
+    throw new Error("conversationId is required to upsert a ticket");
+  }
+
+  const allowedStatuses = new Set(["open", "pending", "resolved", "closed"]);
+  const normalizedStatus = status && allowedStatuses.has(status.toLowerCase())
+    ? status.toLowerCase()
+    : "open";
+
+  const safeMetadata =
+    metadata === undefined || metadata === null
+      ? null
+      : typeof metadata === "string"
+        ? metadata
+        : JSON.stringify(metadata);
+
+  const baseData = {
+    conversationId,
+    subject: subject || "Customer support request",
+    message: message || null,
+    status: normalizedStatus,
+    metadata: safeMetadata,
+  };
+
+  try {
+    if (ticketId) {
+      const existing = await prisma.customerSupportTicket.findFirst({
+        where: { id: ticketId, conversationId }
+      });
+
+      if (!existing) {
+        throw new Error("Ticket not found for this conversation");
+      }
+
+      return await prisma.customerSupportTicket.update({
+        where: { id: existing.id },
+        data: {
+          ...baseData,
+          updatedAt: new Date()
+        }
+      });
+    }
+
+    return await prisma.customerSupportTicket.create({
+      data: baseData
+    });
+  } catch (error) {
+    console.error('Error upserting customer support ticket:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch the most recent ticket for a conversation
+ * @param {string} conversationId - Conversation identifier
+ * @returns {Promise<Object|null>} - Latest ticket or null
+ */
+export async function getMostRecentCustomerSupportTicket(conversationId) {
+  if (!conversationId) return null;
+
+  try {
+    return await prisma.customerSupportTicket.findFirst({
+      where: { conversationId },
+      orderBy: { updatedAt: "desc" }
+    });
+  } catch (error) {
+    console.error('Error retrieving most recent customer support ticket:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetch a specific ticket by id for a conversation
+ * @param {string} conversationId
+ * @param {string} ticketId
+ * @returns {Promise<Object|null>}
+ */
+export async function getCustomerSupportTicketById(conversationId, ticketId) {
+  if (!conversationId || !ticketId) return null;
+
+  try {
+    return await prisma.customerSupportTicket.findFirst({
+      where: { id: ticketId, conversationId }
+    });
+  } catch (error) {
+    console.error('Error retrieving customer support ticket by id:', error);
     return null;
   }
 }
